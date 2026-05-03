@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { BottomNavigation, Text } from "react-native-paper";
+import { BottomNavigation, IconButton, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { AppTab } from "../../App";
@@ -12,6 +12,7 @@ import { TransactionsScreen } from "../screens/TransactionsScreen";
 type ShellProps = {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
+  onSignOut?: () => void;
 };
 
 const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocusedIcon: string }> = [
@@ -41,7 +42,7 @@ const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocused
   }
 ];
 
-export function Shell({ activeTab, onTabChange }: ShellProps) {
+export function Shell({ activeTab, onTabChange, onSignOut }: ShellProps) {
   const renderScene = BottomNavigation.SceneMap({
     dashboard: DashboardScreen,
     transactions: TransactionsScreen,
@@ -58,6 +59,15 @@ export function Shell({ activeTab, onTabChange }: ShellProps) {
           </Text>
           <Text variant="titleLarge">Multi-currency cockpit</Text>
         </View>
+        {onSignOut ? (
+          <IconButton
+            accessibilityLabel="Sign out"
+            icon="logout"
+            mode="contained-tonal"
+            onPress={onSignOut}
+            size={20}
+          />
+        ) : null}
       </View>
       <BottomNavigation
         navigationState={{
@@ -80,10 +90,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#F5F7F9"
   },
   header: {
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 10,
     paddingTop: 8,
-    backgroundColor: "#F5F7F9"
+    backgroundColor: "#F5F7F9",
+    flexDirection: "row",
+    justifyContent: "space-between"
   },
   kicker: {
     color: "#19624A",

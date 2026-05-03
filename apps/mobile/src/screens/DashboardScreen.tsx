@@ -6,6 +6,7 @@ import { AddAccountDialog } from "../components/AddAccountDialog";
 import { MetricCard } from "../components/MetricCard";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
+import { StateCard } from "../components/StateCard";
 import { alerts, baseCurrency } from "../data/mockFinance";
 import { useFinance } from "../state/FinanceContext";
 import { getCurrencyExposure, getDashboardSummary } from "../utils/finance";
@@ -13,12 +14,17 @@ import { formatMoney } from "../utils/money";
 
 export function DashboardScreen() {
   const [addAccountVisible, setAddAccountVisible] = useState(false);
-  const { accounts, transactions, liabilities } = useFinance();
+  const { accounts, transactions, liabilities, isLoading } = useFinance();
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
+  const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
   return (
     <Screen>
+      {isLoading ? (
+        <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from Convex." loading />
+      ) : null}
+
       <Card mode="contained" style={styles.hero}>
         <Card.Content>
           <Text variant="labelLarge" style={styles.heroLabel}>
@@ -49,49 +55,57 @@ export function DashboardScreen() {
       </View>
 
       <SectionTitle title="Cash By Account" action="Manage" />
-      <Card mode="contained" style={styles.card}>
-        {accounts.map((account, index) => (
-          <View key={account.id}>
-            <List.Item
-              title={account.name}
-              description={account.lastSyncedAt ?? "Manual balance"}
-              left={(props) => (
-                <List.Icon
-                  {...props}
-                  icon={account.source === "wise" ? "swap-horizontal-circle" : "bank"}
-                />
-              )}
-              right={() => (
-                <View style={styles.amountBlock}>
-                  <Text variant="titleMedium">{formatMoney(account.currentBalance, account.currency)}</Text>
-                  <Text variant="bodySmall" style={styles.muted}>
-                    {account.source.replace("_", " ")}
-                  </Text>
-                </View>
-              )}
-            />
-            {index < accounts.length - 1 ? <Divider /> : null}
-          </View>
-        ))}
-      </Card>
-
-      <SectionTitle title="Currency Exposure" />
-      <Card mode="contained" style={styles.card}>
-        <Card.Content style={styles.exposureList}>
-          {exposure.map((item) => (
-            <View key={`${item.currency}-${item.amount}`} style={styles.exposureRow}>
-              <View style={styles.exposureLabel}>
-                <Chip compact>{item.currency}</Chip>
-                <Text variant="bodyMedium">{formatMoney(item.amount, item.currency)}</Text>
-              </View>
-              <View style={styles.exposureValue}>
-                <Text variant="labelLarge">{formatMoney(item.baseAmount, "EUR")}</Text>
-                <ProgressBar progress={Math.min(item.baseAmount / summary.cash, 1)} color="#19624A" />
-              </View>
+      {accounts.length > 0 ? (
+        <Card mode="contained" style={styles.card}>
+          {accounts.map((account, index) => (
+            <View key={account.id}>
+              <List.Item
+                title={account.name}
+                description={account.lastSyncedAt ?? "Manual balance"}
+                left={(props) => (
+                  <List.Icon
+                    {...props}
+                    icon={account.source === "wise" ? "swap-horizontal-circle" : "bank"}
+                  />
+                )}
+                right={() => (
+                  <View style={styles.amountBlock}>
+                    <Text variant="titleMedium">{formatMoney(account.currentBalance, account.currency)}</Text>
+                    <Text variant="bodySmall" style={styles.muted}>
+                      {account.source.replace("_", " ")}
+                    </Text>
+                  </View>
+                )}
+              />
+              {index < accounts.length - 1 ? <Divider /> : null}
             </View>
           ))}
-        </Card.Content>
-      </Card>
+        </Card>
+      ) : (
+        <StateCard title="No accounts yet" detail="Add a manual account or import a CSV to start tracking balances." />
+      )}
+
+      <SectionTitle title="Currency Exposure" />
+      {exposure.length > 0 ? (
+        <Card mode="contained" style={styles.card}>
+          <Card.Content style={styles.exposureList}>
+            {exposure.map((item) => (
+              <View key={`${item.currency}-${item.amount}`} style={styles.exposureRow}>
+                <View style={styles.exposureLabel}>
+                  <Chip compact>{item.currency}</Chip>
+                  <Text variant="bodyMedium">{formatMoney(item.amount, item.currency)}</Text>
+                </View>
+                <View style={styles.exposureValue}>
+                  <Text variant="labelLarge">{formatMoney(item.baseAmount, "EUR")}</Text>
+                  <ProgressBar progress={Math.min(Math.abs(item.baseAmount) / exposureDenominator, 1)} color="#19624A" />
+                </View>
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      ) : (
+        <StateCard title="No currency exposure" detail="Currency exposure appears after at least one account is tracked." />
+      )}
 
       <SectionTitle title="Alerts" />
       <View style={styles.alerts}>

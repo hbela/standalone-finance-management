@@ -2,6 +2,8 @@
 
 A Turborepo workspace for a multi-currency personal finance cockpit. The current mobile app is an Expo React Native MVP using React Native Paper and mock data, with backend packages now scaffolded for Clerk, Convex, Wise, CSV import, and provider adapters.
 
+See [ROADMAP.md](./ROADMAP.md) for the next implementation phases now that the Convex-backed MVP flows are working.
+
 ## Run
 
 ```bash

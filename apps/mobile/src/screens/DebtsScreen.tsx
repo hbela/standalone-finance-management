@@ -5,12 +5,13 @@ import { Button, Card, Chip, Divider, List, ProgressBar, Text } from "react-nati
 import { AddLiabilityDialog } from "../components/AddLiabilityDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
+import { StateCard } from "../components/StateCard";
 import { useFinance } from "../state/FinanceContext";
 import { toBaseCurrency } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
 export function DebtsScreen() {
-  const { liabilities } = useFinance();
+  const { liabilities, isLoading } = useFinance();
   const [addLiabilityVisible, setAddLiabilityVisible] = useState(false);
   const totalDebt = liabilities.reduce(
     (sum, liability) => sum + toBaseCurrency(liability.outstandingBalance, liability.currency),
@@ -23,6 +24,10 @@ export function DebtsScreen() {
 
   return (
     <Screen>
+      {isLoading ? (
+        <StateCard title="Loading liabilities" detail="Fetching your loans and debt records from Convex." loading />
+      ) : null}
+
       <Card mode="contained" style={styles.summary}>
         <Card.Content>
           <Text variant="labelLarge" style={styles.summaryLabel}>
@@ -46,67 +51,74 @@ export function DebtsScreen() {
       </Card>
 
       <SectionTitle title="Loans And Mortgages" />
-      <View style={styles.list}>
-        {liabilities.map((liability) => {
-          const progress = 1 - liability.outstandingBalance / liability.originalPrincipal;
+      {liabilities.length > 0 ? (
+        <View style={styles.list}>
+          {liabilities.map((liability) => {
+            const progress =
+              liability.originalPrincipal > 0
+                ? 1 - liability.outstandingBalance / liability.originalPrincipal
+                : 0;
 
-          return (
-            <Card key={liability.id} mode="contained" style={styles.card}>
-              <Card.Content style={styles.cardContent}>
-                <View style={styles.titleRow}>
-                  <View style={styles.titleBlock}>
-                    <Text variant="titleMedium" style={styles.title}>
-                      {liability.name}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.muted}>
-                      {liability.institution}
-                    </Text>
+            return (
+              <Card key={liability.id} mode="contained" style={styles.card}>
+                <Card.Content style={styles.cardContent}>
+                  <View style={styles.titleRow}>
+                    <View style={styles.titleBlock}>
+                      <Text variant="titleMedium" style={styles.title}>
+                        {liability.name}
+                      </Text>
+                      <Text variant="bodySmall" style={styles.muted}>
+                        {liability.institution}
+                      </Text>
+                    </View>
+                    <Chip compact icon={liability.rateType === "fixed" ? "lock" : "chart-line"}>
+                      {liability.rateType}
+                    </Chip>
                   </View>
-                  <Chip compact icon={liability.rateType === "fixed" ? "lock" : "chart-line"}>
-                    {liability.rateType}
-                  </Chip>
-                </View>
 
-                <View style={styles.balanceRow}>
-                  <View>
-                    <Text variant="labelMedium" style={styles.muted}>
-                      Outstanding
-                    </Text>
-                    <Text variant="titleLarge">
-                      {formatMoney(liability.outstandingBalance, liability.currency)}
-                    </Text>
+                  <View style={styles.balanceRow}>
+                    <View>
+                      <Text variant="labelMedium" style={styles.muted}>
+                        Outstanding
+                      </Text>
+                      <Text variant="titleLarge">
+                        {formatMoney(liability.outstandingBalance, liability.currency)}
+                      </Text>
+                    </View>
+                    <View style={styles.paymentBlock}>
+                      <Text variant="labelMedium" style={styles.muted}>
+                        Payment
+                      </Text>
+                      <Text variant="titleMedium">
+                        {formatMoney(liability.paymentAmount, liability.currency)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.paymentBlock}>
-                    <Text variant="labelMedium" style={styles.muted}>
-                      Payment
-                    </Text>
-                    <Text variant="titleMedium">
-                      {formatMoney(liability.paymentAmount, liability.currency)}
-                    </Text>
-                  </View>
-                </View>
 
-                <ProgressBar progress={Math.max(progress, 0.02)} color="#325B7C" />
-                <View style={styles.detailGrid}>
-                  <List.Item
-                    title={`${liability.interestRate}%`}
-                    description="Interest"
-                    left={(props) => <List.Icon {...props} icon="percent" />}
-                    style={styles.detailItem}
-                  />
-                  <Divider />
-                  <List.Item
-                    title={liability.nextDueDate}
-                    description="Next due"
-                    left={(props) => <List.Icon {...props} icon="calendar-clock" />}
-                    style={styles.detailItem}
-                  />
-                </View>
-              </Card.Content>
-            </Card>
-          );
-        })}
-      </View>
+                  <ProgressBar progress={Math.max(progress, 0.02)} color="#325B7C" />
+                  <View style={styles.detailGrid}>
+                    <List.Item
+                      title={`${liability.interestRate}%`}
+                      description="Interest"
+                      left={(props) => <List.Icon {...props} icon="percent" />}
+                      style={styles.detailItem}
+                    />
+                    <Divider />
+                    <List.Item
+                      title={liability.nextDueDate}
+                      description="Next due"
+                      left={(props) => <List.Icon {...props} icon="calendar-clock" />}
+                      style={styles.detailItem}
+                    />
+                  </View>
+                </Card.Content>
+              </Card>
+            );
+          })}
+        </View>
+      ) : (
+        <StateCard title="No liabilities yet" detail="Add a loan, card balance, or mortgage to track debt payoff." />
+      )}
       <AddLiabilityDialog visible={addLiabilityVisible} onDismiss={() => setAddLiabilityVisible(false)} />
     </Screen>
   );

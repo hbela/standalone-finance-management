@@ -7,6 +7,7 @@ import { EditTransactionDialog } from "../components/EditTransactionDialog";
 import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
+import { StateCard } from "../components/StateCard";
 import type { Transaction, TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { formatSignedMoney } from "../utils/money";
@@ -19,7 +20,7 @@ const filterOptions = [
 ];
 
 export function TransactionsScreen() {
-  const { transactions } = useFinance();
+  const { transactions, isLoading } = useFinance();
   const [addTransactionVisible, setAddTransactionVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -45,6 +46,10 @@ export function TransactionsScreen() {
 
   return (
     <Screen>
+      {isLoading ? (
+        <StateCard title="Loading ledger" detail="Fetching your transactions from Convex." loading />
+      ) : null}
+
       <Searchbar
         placeholder="Search merchant, category, note"
         value={query}
@@ -64,40 +69,51 @@ export function TransactionsScreen() {
           </Button>
         </View>
       </View>
-      <Card mode="contained" style={styles.card}>
-        {visibleTransactions.map((transaction, index) => (
-          <View key={transaction.id}>
-            <List.Item
-              title={transaction.merchant}
-              description={`${transaction.category} . ${transaction.postedAt}`}
-              onPress={() => setSelectedTransaction(transaction)}
-              left={(props) => <List.Icon {...props} icon={iconForType(transaction.type)} />}
-              right={() => (
-                <View style={styles.amountBlock}>
-                  <Text
-                    variant="titleSmall"
-                    style={transaction.amount > 0 ? styles.positive : styles.negative}
-                  >
-                    {formatSignedMoney(transaction.amount, transaction.currency)}
-                  </Text>
-                  <Text variant="bodySmall" style={styles.muted}>
-                    {formatSignedMoney(transaction.baseCurrencyAmount, "EUR")}
-                  </Text>
-                </View>
-              )}
-            />
-            <View style={styles.metaRow}>
-              <Chip compact icon={transaction.source === "wise" ? "swap-horizontal" : "bank"}>
-                {transaction.source.replace("_", " ")}
-              </Chip>
-              {transaction.isRecurring ? <Chip compact icon="repeat">Recurring</Chip> : null}
-              {transaction.isExcludedFromReports ? <Chip compact icon="eye-off">Excluded</Chip> : null}
-              {transaction.notes ? <Chip compact icon="note-text-outline">Notes</Chip> : null}
+      {visibleTransactions.length > 0 ? (
+        <Card mode="contained" style={styles.card}>
+          {visibleTransactions.map((transaction, index) => (
+            <View key={transaction.id}>
+              <List.Item
+                title={transaction.merchant}
+                description={`${transaction.category} . ${transaction.postedAt}`}
+                onPress={() => setSelectedTransaction(transaction)}
+                left={(props) => <List.Icon {...props} icon={iconForType(transaction.type)} />}
+                right={() => (
+                  <View style={styles.amountBlock}>
+                    <Text
+                      variant="titleSmall"
+                      style={transaction.amount > 0 ? styles.positive : styles.negative}
+                    >
+                      {formatSignedMoney(transaction.amount, transaction.currency)}
+                    </Text>
+                    <Text variant="bodySmall" style={styles.muted}>
+                      {formatSignedMoney(transaction.baseCurrencyAmount, "EUR")}
+                    </Text>
+                  </View>
+                )}
+              />
+              <View style={styles.metaRow}>
+                <Chip compact icon={transaction.source === "wise" ? "swap-horizontal" : "bank"}>
+                  {transaction.source.replace("_", " ")}
+                </Chip>
+                {transaction.isRecurring ? <Chip compact icon="repeat">Recurring</Chip> : null}
+                {transaction.isExcludedFromReports ? <Chip compact icon="eye-off">Excluded</Chip> : null}
+                {transaction.notes ? <Chip compact icon="note-text-outline">Notes</Chip> : null}
+              </View>
+              {index < visibleTransactions.length - 1 ? <Divider /> : null}
             </View>
-            {index < visibleTransactions.length - 1 ? <Divider /> : null}
-          </View>
-        ))}
-      </Card>
+          ))}
+        </Card>
+      ) : (
+        <StateCard
+          title={transactions.length > 0 ? "No matching transactions" : "No transactions yet"}
+          detail={
+            transactions.length > 0
+              ? "Adjust the search or filter to bring transactions back into view."
+              : "Add a transaction manually or import a CSV statement."
+          }
+        />
+      )}
       <AddTransactionDialog visible={addTransactionVisible} onDismiss={() => setAddTransactionVisible(false)} />
       <ImportCsvDialog visible={importCsvVisible} onDismiss={() => setImportCsvVisible(false)} />
       <EditTransactionDialog

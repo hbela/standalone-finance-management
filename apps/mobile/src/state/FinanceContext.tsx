@@ -57,6 +57,7 @@ type FinanceContextValue = {
   transactions: Transaction[];
   liabilities: Liability[];
   isPersisted: boolean;
+  isLoading: boolean;
   addAccount: (input: NewAccountInput) => void;
   addTransaction: (input: NewTransactionInput) => void;
   importTransactions: (accountId: string, rows: ParsedCsvTransaction[]) => { imported: number; skipped: number };
@@ -94,6 +95,7 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
       transactions,
       liabilities,
       isPersisted: false,
+      isLoading: false,
       addAccount: (input) => {
         const account: Account = {
           id: `account-${Date.now()}`,
@@ -224,6 +226,8 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
   const importConvexTransactions = useMutation(api.transactions.importForAccount);
   const updateConvexTransaction = useMutation(api.transactions.update);
   const createLiability = useMutation(api.liabilities.createManual);
+  const isLoading =
+    convexAccounts === undefined || convexTransactions === undefined || convexLiabilities === undefined;
 
   const accounts = useMemo<Account[]>(
     () =>
@@ -291,6 +295,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
       transactions,
       liabilities,
       isPersisted: true,
+      isLoading,
       addAccount: (input) => {
         void createAccount({
           source: input.source,
@@ -392,6 +397,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
       createLiability,
       createTransaction,
       importConvexTransactions,
+      isLoading,
       liabilities,
       transactions,
       updateConvexTransaction
