@@ -1,0 +1,34 @@
+{
+  "name": "wise-finance-management",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.9.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev --parallel",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "start": "npm run start -w @wise-finance/mobile",
+    "start:mobile": "npm run start -w @wise-finance/mobile",
+    "start:api": "npm run dev -w @wise-finance/api",
+    "web:clear": "npm run web:clear -w @wise-finance/mobile",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
+    "android": "npm run android -w @wise-finance/mobile",
+    "ios": "npm run ios -w @wise-finance/mobile",
+    "web": "npm run web -w @wise-finance/mobile"
+  },
+  "overrides": {
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "convex": "^1.37.0",
+    "dotenv-cli": "^11.0.0",
+    "turbo": "^2.5.0",
+    "typescript": "~5.9.2"
+  }
+}
