@@ -15,7 +15,7 @@ export type Account = {
   bankId?: string;
   name: string;
   currency: Currency;
-  type: "checking" | "savings" | "wise_balance" | "cash";
+  type: "checking" | "savings" | "credit" | "loan" | "mortgage" | "wise_balance" | "cash";
   currentBalance: number;
   lastSyncedAt?: string;
 };
@@ -43,19 +43,21 @@ export type Transaction = {
   type: TransactionType;
   isRecurring: boolean;
   isExcludedFromReports: boolean;
+  dedupeHash: string;
+  notes?: string;
 };
 
 export type Liability = {
   id: string;
   name: string;
   institution: string;
-  type: "personal_loan" | "mortgage" | "student_loan" | "car_loan" | "credit_card_debt";
+  type: "personal_loan" | "mortgage" | "student_loan" | "car_loan" | "credit_card_debt" | "other";
   currency: Currency;
   originalPrincipal: number;
   outstandingBalance: number;
   interestRate: number;
   paymentAmount: number;
-  paymentFrequency: "monthly" | "quarterly";
+  paymentFrequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
   nextDueDate: string;
   rateType: "fixed" | "variable";
 };

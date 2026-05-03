@@ -3,9 +3,11 @@ import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, Searchbar, SegmentedButtons, Text } from "react-native-paper";
 
 import { AddTransactionDialog } from "../components/AddTransactionDialog";
+import { EditTransactionDialog } from "../components/EditTransactionDialog";
+import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
-import type { TransactionType } from "../data/types";
+import type { Transaction, TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { formatSignedMoney } from "../utils/money";
 
@@ -19,6 +21,8 @@ const filterOptions = [
 export function TransactionsScreen() {
   const { transactions } = useFinance();
   const [addTransactionVisible, setAddTransactionVisible] = useState(false);
+  const [importCsvVisible, setImportCsvVisible] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
 
@@ -37,7 +41,7 @@ export function TransactionsScreen() {
 
       return matchesFilter && matchesQuery;
     });
-  }, [filter, query]);
+  }, [filter, query, transactions]);
 
   return (
     <Screen>
@@ -51,9 +55,14 @@ export function TransactionsScreen() {
 
       <View style={styles.titleRow}>
         <SectionTitle title="Unified Ledger" action={`${visibleTransactions.length} items`} />
-        <Button mode="contained" icon="plus" onPress={() => setAddTransactionVisible(true)}>
-          Add
-        </Button>
+        <View style={styles.actions}>
+          <Button mode="outlined" icon="file-upload-outline" onPress={() => setImportCsvVisible(true)}>
+            Import
+          </Button>
+          <Button mode="contained" icon="plus" onPress={() => setAddTransactionVisible(true)}>
+            Add
+          </Button>
+        </View>
       </View>
       <Card mode="contained" style={styles.card}>
         {visibleTransactions.map((transaction, index) => (
@@ -61,6 +70,7 @@ export function TransactionsScreen() {
             <List.Item
               title={transaction.merchant}
               description={`${transaction.category} . ${transaction.postedAt}`}
+              onPress={() => setSelectedTransaction(transaction)}
               left={(props) => <List.Icon {...props} icon={iconForType(transaction.type)} />}
               right={() => (
                 <View style={styles.amountBlock}>
@@ -82,12 +92,19 @@ export function TransactionsScreen() {
               </Chip>
               {transaction.isRecurring ? <Chip compact icon="repeat">Recurring</Chip> : null}
               {transaction.isExcludedFromReports ? <Chip compact icon="eye-off">Excluded</Chip> : null}
+              {transaction.notes ? <Chip compact icon="note-text-outline">Notes</Chip> : null}
             </View>
             {index < visibleTransactions.length - 1 ? <Divider /> : null}
           </View>
         ))}
       </Card>
       <AddTransactionDialog visible={addTransactionVisible} onDismiss={() => setAddTransactionVisible(false)} />
+      <ImportCsvDialog visible={importCsvVisible} onDismiss={() => setImportCsvVisible(false)} />
+      <EditTransactionDialog
+        transaction={selectedTransaction}
+        visible={selectedTransaction !== null}
+        onDismiss={() => setSelectedTransaction(null)}
+      />
     </Screen>
   );
 }
@@ -118,6 +135,11 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   titleRow: {
+    gap: 10
+  },
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10
   },
   amountBlock: {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, StyleSheet } from "react-native";
 import { Button, Dialog, Portal, SegmentedButtons, TextInput } from "react-native-paper";
 
@@ -8,6 +8,10 @@ import { type NewAccountInput, useFinance } from "../state/FinanceContext";
 type AddAccountDialogProps = {
   visible: boolean;
   onDismiss: () => void;
+  initialBankId?: string;
+  initialCurrency?: Currency;
+  initialName?: string;
+  initialSource?: NewAccountInput["source"];
 };
 
 const sourceButtons = [
@@ -23,14 +27,30 @@ const currencyButtons = [
   { label: "GBP", value: "GBP" }
 ];
 
-export function AddAccountDialog({ visible, onDismiss }: AddAccountDialogProps) {
+export function AddAccountDialog({
+  visible,
+  onDismiss,
+  initialBankId,
+  initialCurrency = "EUR",
+  initialName = "Manual account",
+  initialSource = "manual"
+}: AddAccountDialogProps) {
   const { addAccount } = useFinance();
-  const [name, setName] = useState("Manual account");
-  const [source, setSource] = useState<NewAccountInput["source"]>("manual");
-  const [currency, setCurrency] = useState<Currency>("EUR");
+  const [name, setName] = useState(initialName);
+  const [source, setSource] = useState<NewAccountInput["source"]>(initialSource);
+  const [currency, setCurrency] = useState<Currency>(initialCurrency);
   const [balance, setBalance] = useState("0");
 
   const canSave = name.trim().length > 0 && Number.isFinite(Number(balance));
+
+  useEffect(() => {
+    if (visible) {
+      setName(initialName);
+      setSource(initialSource);
+      setCurrency(initialCurrency);
+      setBalance("0");
+    }
+  }, [initialCurrency, initialName, initialSource, visible]);
 
   return (
     <Portal>
@@ -61,7 +81,8 @@ export function AddAccountDialog({ visible, onDismiss }: AddAccountDialogProps) 
                 source,
                 currency,
                 type: source === "wise" ? "wise_balance" : source === "manual" ? "cash" : "checking",
-                currentBalance: Number(balance)
+                currentBalance: Number(balance),
+                bankId: source === "local_bank" ? initialBankId : undefined
               });
               onDismiss();
             }}

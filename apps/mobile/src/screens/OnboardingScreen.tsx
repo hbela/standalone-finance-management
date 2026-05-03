@@ -4,16 +4,19 @@ import {
   Button,
   Card,
   Checkbox,
-  Chip,
   Divider,
   List,
   SegmentedButtons,
   Text
 } from "react-native-paper";
 
+import { AddAccountDialog } from "../components/AddAccountDialog";
+import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { banks } from "../data/mockFinance";
+import type { Bank, Currency } from "../data/types";
+import { useFinance } from "../state/FinanceContext";
 
 const countries = [
   { value: "HU", label: "Hungary" },
@@ -35,11 +38,36 @@ const setupSteps = [
 ];
 
 export function OnboardingScreen() {
+  const { accounts } = useFinance();
   const [country, setCountry] = useState("HU");
   const [currency, setCurrency] = useState("EUR");
   const [wiseConsent, setWiseConsent] = useState(true);
+  const [addAccountVisible, setAddAccountVisible] = useState(false);
+  const [importCsvVisible, setImportCsvVisible] = useState(false);
+  const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const countryName = country === "HU" ? "Hungary" : "France";
   const availableBanks = banks.filter((bank) => bank.country === countryName);
+  const defaultCurrency = selectedBank?.supportedCurrencies[0] ?? (currency as Currency);
+
+  const openManualAccount = (bank: Bank) => {
+    setSelectedBank(bank);
+    setSelectedAccountId(undefined);
+    setAddAccountVisible(true);
+  };
+
+  const openCsvImport = (bank: Bank) => {
+    const existingAccount = accounts.find((account) => account.bankId === bank.id);
+    setSelectedBank(bank);
+    setSelectedAccountId(existingAccount?.id);
+
+    if (existingAccount) {
+      setImportCsvVisible(true);
+      return;
+    }
+
+    setAddAccountVisible(true);
+  };
 
   return (
     <Screen>
@@ -77,12 +105,12 @@ export function OnboardingScreen() {
               left={(props) => <List.Icon {...props} icon="bank-check" />}
               right={() => (
                 <View style={styles.bankMethods}>
-                  <Chip compact icon="file-upload-outline">
+                  <Button compact mode="outlined" icon="file-upload-outline" onPress={() => openCsvImport(bank)}>
                     CSV
-                  </Chip>
-                  <Chip compact icon="pencil">
+                  </Button>
+                  <Button compact mode="outlined" icon="pencil" onPress={() => openManualAccount(bank)}>
                     Manual
-                  </Chip>
+                  </Button>
                 </View>
               )}
             />
@@ -126,6 +154,19 @@ export function OnboardingScreen() {
           </View>
         ))}
       </Card>
+      <AddAccountDialog
+        visible={addAccountVisible}
+        onDismiss={() => setAddAccountVisible(false)}
+        initialBankId={selectedBank?.id}
+        initialCurrency={defaultCurrency}
+        initialName={selectedBank ? `${selectedBank.name} account` : "Manual account"}
+        initialSource="local_bank"
+      />
+      <ImportCsvDialog
+        visible={importCsvVisible}
+        onDismiss={() => setImportCsvVisible(false)}
+        initialAccountId={selectedAccountId}
+      />
     </Screen>
   );
 }

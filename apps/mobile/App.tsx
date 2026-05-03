@@ -72,19 +72,18 @@ class AppErrorBoundary extends React.Component<
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
+  const shouldUseAuthProviders =
+    enableAuthProviders && Boolean(clerkPublishableKey) && Boolean(convex);
 
   const appShell = (
     <SafeAreaProvider>
       <PaperProvider theme={financeTheme}>
-        <FinanceProvider>
+        <FinanceProvider persistWithConvex={shouldUseAuthProviders}>
           <Shell activeTab={activeTab} onTabChange={setActiveTab} />
         </FinanceProvider>
       </PaperProvider>
     </SafeAreaProvider>
   );
-
-  const shouldUseAuthProviders =
-    enableAuthProviders && Boolean(clerkPublishableKey) && Boolean(convex);
 
   if (!shouldUseAuthProviders || !clerkPublishableKey || !convex) {
     return <AppErrorBoundary>{appShell}</AppErrorBoundary>;

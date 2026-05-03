@@ -62,6 +62,7 @@ export default defineSchema({
     userId: v.id("users"),
     source: accountSource,
     bankId: v.optional(v.id("banks")),
+    bankKey: v.optional(v.string()),
     providerAccountId: v.optional(v.string()),
     name: v.string(),
     currency: currencyCode,

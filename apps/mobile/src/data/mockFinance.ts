@@ -74,7 +74,8 @@ export const transactions: Transaction[] = [
     category: "Freelance",
     type: "income",
     isRecurring: true,
-    isExcludedFromReports: false
+    isExcludedFromReports: false,
+    dedupeHash: "a2|2026-05-01|2100.00|EUR|freelance invoice|northstar studio"
   },
   {
     id: "t2",
@@ -89,7 +90,8 @@ export const transactions: Transaction[] = [
     category: "Mortgage payment",
     type: "mortgage_payment",
     isRecurring: true,
-    isExcludedFromReports: false
+    isExcludedFromReports: false,
+    dedupeHash: "a1|2026-05-01|-305000.00|HUF|mortgage installment|otp jelzalog"
   },
   {
     id: "t3",
@@ -104,7 +106,8 @@ export const transactions: Transaction[] = [
     category: "Food",
     type: "expense",
     isRecurring: false,
-    isExcludedFromReports: false
+    isExcludedFromReports: false,
+    dedupeHash: "a1|2026-04-30|-23800.00|HUF|groceries|spar"
   },
   {
     id: "t4",
@@ -119,7 +122,8 @@ export const transactions: Transaction[] = [
     category: "Subscriptions",
     type: "expense",
     isRecurring: true,
-    isExcludedFromReports: false
+    isExcludedFromReports: false,
+    dedupeHash: "a3|2026-04-29|-450.00|USD|software subscriptions|saas bundle"
   },
   {
     id: "t5",
@@ -134,7 +138,8 @@ export const transactions: Transaction[] = [
     category: "Internal transfer",
     type: "transfer",
     isRecurring: false,
-    isExcludedFromReports: true
+    isExcludedFromReports: true,
+    dedupeHash: "a2|2026-04-28|-800.00|EUR|eur to huf conversion|wise"
   }
 ];
 
