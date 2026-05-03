@@ -20,7 +20,7 @@ const filterOptions = [
 ];
 
 export function TransactionsScreen() {
-  const { transactions, isLoading } = useFinance();
+  const { transactions, isLoading, error, clearError } = useFinance();
   const [addTransactionVisible, setAddTransactionVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
@@ -49,6 +49,7 @@ export function TransactionsScreen() {
       {isLoading ? (
         <StateCard title="Loading ledger" detail="Fetching your transactions from Convex." loading />
       ) : null}
+      {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
 
       <Searchbar
         placeholder="Search merchant, category, note"
@@ -76,7 +77,10 @@ export function TransactionsScreen() {
               <List.Item
                 title={transaction.merchant}
                 description={`${transaction.category} . ${transaction.postedAt}`}
-                onPress={() => setSelectedTransaction(transaction)}
+                onPress={() => {
+                  clearError();
+                  setSelectedTransaction(transaction);
+                }}
                 left={(props) => <List.Icon {...props} icon={iconForType(transaction.type)} />}
                 right={() => (
                   <View style={styles.amountBlock}>

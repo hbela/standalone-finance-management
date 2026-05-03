@@ -7,6 +7,7 @@ import type { AppTab } from "../../App";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { DebtsScreen } from "../screens/DebtsScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { TransactionsScreen } from "../screens/TransactionsScreen";
 
 type ShellProps = {
@@ -39,16 +40,32 @@ const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocused
     title: "Setup",
     focusedIcon: "shield-check",
     unfocusedIcon: "shield-check-outline"
+  },
+  {
+    key: "settings",
+    title: "Settings",
+    focusedIcon: "cog",
+    unfocusedIcon: "cog-outline"
   }
 ];
 
 export function Shell({ activeTab, onTabChange, onSignOut }: ShellProps) {
-  const renderScene = BottomNavigation.SceneMap({
-    dashboard: DashboardScreen,
-    transactions: TransactionsScreen,
-    debts: DebtsScreen,
-    onboarding: OnboardingScreen
-  });
+  const renderScene = ({ route }: { route: { key: AppTab } }) => {
+    switch (route.key) {
+      case "dashboard":
+        return <DashboardScreen />;
+      case "transactions":
+        return <TransactionsScreen />;
+      case "debts":
+        return <DebtsScreen />;
+      case "onboarding":
+        return <OnboardingScreen />;
+      case "settings":
+        return <SettingsScreen onSignOut={onSignOut} />;
+      default:
+        return null;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -17,6 +17,10 @@ export type NewAccountInput = {
   bankId?: string;
 };
 
+export type UpdateAccountInput = NewAccountInput & {
+  id: string;
+};
+
 export type NewTransactionInput = {
   accountId: string;
   amount: number;
@@ -41,6 +45,11 @@ export type NewLiabilityInput = {
   rateType: Liability["rateType"];
 };
 
+export type UpdateLiabilityInput = NewLiabilityInput & {
+  id: string;
+  paymentFrequency: Liability["paymentFrequency"];
+};
+
 export type UpdateTransactionInput = {
   id: string;
   category: string;
@@ -56,13 +65,25 @@ type FinanceContextValue = {
   accounts: Account[];
   transactions: Transaction[];
   liabilities: Liability[];
+  settings: {
+    baseCurrency: Currency;
+    locale: string;
+  };
   isPersisted: boolean;
   isLoading: boolean;
-  addAccount: (input: NewAccountInput) => void;
-  addTransaction: (input: NewTransactionInput) => void;
-  importTransactions: (accountId: string, rows: ParsedCsvTransaction[]) => { imported: number; skipped: number };
-  updateTransaction: (input: UpdateTransactionInput) => void;
-  addLiability: (input: NewLiabilityInput) => void;
+  error: string | null;
+  clearError: () => void;
+  addAccount: (input: NewAccountInput) => Promise<void>;
+  updateAccount: (input: UpdateAccountInput) => Promise<void>;
+  archiveAccount: (accountId: string) => Promise<void>;
+  addTransaction: (input: NewTransactionInput) => Promise<void>;
+  importTransactions: (accountId: string, rows: ParsedCsvTransaction[]) => Promise<{ imported: number; skipped: number }>;
+  updateTransaction: (input: UpdateTransactionInput) => Promise<void>;
+  archiveTransaction: (transactionId: string) => Promise<void>;
+  addLiability: (input: NewLiabilityInput) => Promise<void>;
+  updateLiability: (input: UpdateLiabilityInput) => Promise<void>;
+  archiveLiability: (liabilityId: string) => Promise<void>;
+  updateSettings: (input: { baseCurrency: Currency; locale: string }) => Promise<void>;
 };
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
@@ -88,15 +109,23 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
   const [liabilities, setLiabilities] = useState<Liability[]>(initialLiabilities);
+  const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
+    baseCurrency: "EUR",
+    locale: "en-US"
+  });
+  const [error, setError] = useState<string | null>(null);
 
   const value = useMemo<FinanceContextValue>(
     () => ({
       accounts,
       transactions,
       liabilities,
+      settings,
       isPersisted: false,
       isLoading: false,
-      addAccount: (input) => {
+      error,
+      clearError: () => setError(null),
+      addAccount: async (input) => {
         const account: Account = {
           id: `account-${Date.now()}`,
           ...input,
@@ -104,7 +133,29 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
         };
         setAccounts((current) => [account, ...current]);
       },
-      addTransaction: (input) => {
+      updateAccount: async (input) => {
+        setAccounts((current) =>
+          current.map((account) =>
+            account.id === input.id
+              ? {
+                  id: account.id,
+                  name: input.name,
+                  source: input.source,
+                  currency: input.currency,
+                  type: input.type,
+                  currentBalance: input.currentBalance,
+                  bankId: input.bankId,
+                  lastSyncedAt: account.lastSyncedAt
+                }
+              : account
+          )
+        );
+      },
+      archiveAccount: async (accountId) => {
+        setAccounts((current) => current.filter((account) => account.id !== accountId));
+        setTransactions((current) => current.filter((transaction) => transaction.accountId !== accountId));
+      },
+      addTransaction: async (input) => {
         const account = accounts.find((candidate) => candidate.id === input.accountId);
         if (!account) {
           return;
@@ -144,7 +195,7 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
           )
         );
       },
-      importTransactions: (accountId, rows) => {
+      importTransactions: async (accountId, rows) => {
         const account = accounts.find((candidate) => candidate.id === accountId);
         if (!account) {
           return { imported: 0, skipped: rows.length };
@@ -184,7 +235,7 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
           skipped: rows.length - importedTransactions.length
         };
       },
-      updateTransaction: (input) => {
+      updateTransaction: async (input) => {
         setTransactions((current) =>
           current.map((transaction) =>
             transaction.id === input.id
@@ -202,16 +253,57 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
           )
         );
       },
-      addLiability: (input) => {
+      archiveTransaction: async (transactionId) => {
+        const transaction = transactions.find((candidate) => candidate.id === transactionId);
+        setTransactions((current) => current.filter((candidate) => candidate.id !== transactionId));
+        if (transaction) {
+          setAccounts((current) =>
+            current.map((account) =>
+              account.id === transaction.accountId
+                ? { ...account, currentBalance: account.currentBalance - transaction.amount }
+                : account
+            )
+          );
+        }
+      },
+      addLiability: async (input) => {
         const liability: Liability = {
           id: `liability-${Date.now()}`,
           ...input,
           paymentFrequency: "monthly"
         };
         setLiabilities((current) => [liability, ...current]);
+      },
+      updateLiability: async (input) => {
+        setLiabilities((current) =>
+          current.map((liability) =>
+            liability.id === input.id
+              ? {
+                  id: liability.id,
+                  name: input.name,
+                  institution: input.institution,
+                  type: input.type,
+                  currency: input.currency,
+                  originalPrincipal: input.originalPrincipal,
+                  outstandingBalance: input.outstandingBalance,
+                  interestRate: input.interestRate,
+                  paymentAmount: input.paymentAmount,
+                  paymentFrequency: input.paymentFrequency,
+                  nextDueDate: input.nextDueDate,
+                  rateType: input.rateType
+                }
+              : liability
+          )
+        );
+      },
+      archiveLiability: async (liabilityId) => {
+        setLiabilities((current) => current.filter((liability) => liability.id !== liabilityId));
+      },
+      updateSettings: async (input) => {
+        setSettings(input);
       }
     }),
-    [accounts, liabilities, transactions]
+    [accounts, error, liabilities, settings, transactions]
   );
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
@@ -221,13 +313,24 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
   const convexAccounts = useQuery(api.accounts.listForCurrent);
   const convexTransactions = useQuery(api.transactions.listForCurrent);
   const convexLiabilities = useQuery(api.liabilities.listForCurrent);
+  const convexUser = useQuery(api.users.current);
   const createAccount = useMutation(api.accounts.createManual);
+  const updateConvexAccount = useMutation(api.accounts.update);
+  const archiveConvexAccount = useMutation(api.accounts.archive);
   const createTransaction = useMutation(api.transactions.createManual);
   const importConvexTransactions = useMutation(api.transactions.importForAccount);
   const updateConvexTransaction = useMutation(api.transactions.update);
+  const archiveConvexTransaction = useMutation(api.transactions.archive);
   const createLiability = useMutation(api.liabilities.createManual);
+  const updateConvexLiability = useMutation(api.liabilities.update);
+  const archiveConvexLiability = useMutation(api.liabilities.archive);
+  const updateConvexUser = useMutation(api.users.upsertCurrent);
+  const [error, setError] = useState<string | null>(null);
   const isLoading =
-    convexAccounts === undefined || convexTransactions === undefined || convexLiabilities === undefined;
+    convexAccounts === undefined ||
+    convexTransactions === undefined ||
+    convexLiabilities === undefined ||
+    convexUser === undefined;
 
   const accounts = useMemo<Account[]>(
     () =>
@@ -289,117 +392,193 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
     [convexLiabilities]
   );
 
+  const settings = useMemo(
+    () => ({
+      baseCurrency: (convexUser?.baseCurrency ?? "EUR") as Currency,
+      locale: convexUser?.locale ?? "en-US"
+    }),
+    [convexUser]
+  );
+
   const value = useMemo<FinanceContextValue>(
     () => ({
       accounts,
       transactions,
       liabilities,
+      settings,
       isPersisted: true,
       isLoading,
-      addAccount: (input) => {
-        void createAccount({
-          source: input.source,
-          bankKey: input.bankId,
-          name: input.name,
-          currency: input.currency,
-          type: input.type,
-          currentBalance: input.currentBalance
-        });
+      error,
+      clearError: () => setError(null),
+      addAccount: async (input) => {
+        await runMutation(setError, () =>
+          createAccount({
+            source: input.source,
+            bankKey: input.bankId,
+            name: input.name,
+            currency: input.currency,
+            type: input.type,
+            currentBalance: input.currentBalance
+          })
+        );
       },
-      addTransaction: (input) => {
+      updateAccount: async (input) => {
+        await runMutation(setError, () =>
+          updateConvexAccount({
+            accountId: input.id as Id<"accounts">,
+            source: input.source,
+            bankKey: input.bankId,
+            name: input.name,
+            currency: input.currency,
+            type: input.type,
+            currentBalance: input.currentBalance
+          })
+        );
+      },
+      archiveAccount: async (accountId) => {
+        await runMutation(setError, () => archiveConvexAccount({ accountId: accountId as Id<"accounts"> }));
+      },
+      addTransaction: async (input) => {
         const account = accounts.find((candidate) => candidate.id === input.accountId);
         if (!account) {
           return;
         }
 
         const signedAmount = normalizeAmount(input.amount, input.type);
-        void createTransaction({
-          accountId: account.id as Id<"accounts">,
-          source: account.source,
-          postedAt: Date.parse(input.postedAt),
-          amount: signedAmount,
-          currency: account.currency,
-          baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
-          description: input.description,
-          merchant: input.merchant,
-          categoryId: input.category,
-          type: input.type,
-          isRecurring: input.isRecurring,
-          isExcludedFromReports: input.type === "transfer",
-          dedupeHash: createTransactionDedupeHash({
-            accountId: account.id,
-            postedAt: input.postedAt,
+        await runMutation(setError, () =>
+          createTransaction({
+            accountId: account.id as Id<"accounts">,
+            source: account.source,
+            postedAt: Date.parse(input.postedAt),
             amount: signedAmount,
             currency: account.currency,
+            baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
             description: input.description,
-            merchant: input.merchant
+            merchant: input.merchant,
+            categoryId: input.category,
+            type: input.type,
+            isRecurring: input.isRecurring,
+            isExcludedFromReports: input.type === "transfer",
+            dedupeHash: createTransactionDedupeHash({
+              accountId: account.id,
+              postedAt: input.postedAt,
+              amount: signedAmount,
+              currency: account.currency,
+              description: input.description,
+              merchant: input.merchant
+            })
           })
-        });
+        );
       },
-      importTransactions: (accountId, rows) => {
+      importTransactions: async (accountId, rows) => {
         const account = accounts.find((candidate) => candidate.id === accountId);
         if (!account) {
           return { imported: 0, skipped: rows.length };
         }
 
-        void importConvexTransactions({
-          transactions: rows.map((row) => ({
-            accountId: account.id as Id<"accounts">,
-            source: account.source,
-            postedAt: Date.parse(row.postedAt),
-            amount: row.amount,
-            currency: row.currency,
-            baseCurrencyAmount: toBaseCurrency(row.amount, row.currency),
-            description: row.description,
-            merchant: row.merchant,
-            categoryId: row.category,
-            type: row.type,
-            isRecurring: false,
-            isExcludedFromReports: row.type === "transfer",
-            dedupeHash: row.dedupeHash,
-            notes: "Imported from CSV"
-          }))
-        });
-
-        return { imported: rows.length, skipped: 0 };
+        return await runMutation(setError, () =>
+          importConvexTransactions({
+            transactions: rows.map((row) => ({
+              accountId: account.id as Id<"accounts">,
+              source: account.source,
+              postedAt: Date.parse(row.postedAt),
+              amount: row.amount,
+              currency: row.currency,
+              baseCurrencyAmount: toBaseCurrency(row.amount, row.currency),
+              description: row.description,
+              merchant: row.merchant,
+              categoryId: row.category,
+              type: row.type,
+              isRecurring: false,
+              isExcludedFromReports: row.type === "transfer",
+              dedupeHash: row.dedupeHash,
+              notes: "Imported from CSV"
+            }))
+          })
+        );
       },
-      updateTransaction: (input) => {
-        void updateConvexTransaction({
-          transactionId: input.id as Id<"transactions">,
-          categoryId: input.category,
-          type: input.type,
-          merchant: input.merchant,
-          description: input.description,
-          notes: input.notes,
-          isRecurring: input.isRecurring,
-          isExcludedFromReports: input.isExcludedFromReports
-        });
+      updateTransaction: async (input) => {
+        await runMutation(setError, () =>
+          updateConvexTransaction({
+            transactionId: input.id as Id<"transactions">,
+            categoryId: input.category,
+            type: input.type,
+            merchant: input.merchant,
+            description: input.description,
+            notes: input.notes,
+            isRecurring: input.isRecurring,
+            isExcludedFromReports: input.isExcludedFromReports
+          })
+        );
       },
-      addLiability: (input) => {
-        void createLiability({
-          name: input.name,
-          institution: input.institution,
-          type: input.type,
-          currency: input.currency,
-          originalPrincipal: input.originalPrincipal,
-          outstandingBalance: input.outstandingBalance,
-          interestRate: input.interestRate,
-          paymentAmount: input.paymentAmount,
-          paymentFrequency: "monthly",
-          nextDueDate: input.nextDueDate,
-          rateType: input.rateType
-        });
+      archiveTransaction: async (transactionId) => {
+        await runMutation(setError, () => archiveConvexTransaction({ transactionId: transactionId as Id<"transactions"> }));
+      },
+      addLiability: async (input) => {
+        await runMutation(setError, () =>
+          createLiability({
+            name: input.name,
+            institution: input.institution,
+            type: input.type,
+            currency: input.currency,
+            originalPrincipal: input.originalPrincipal,
+            outstandingBalance: input.outstandingBalance,
+            interestRate: input.interestRate,
+            paymentAmount: input.paymentAmount,
+            paymentFrequency: "monthly",
+            nextDueDate: input.nextDueDate,
+            rateType: input.rateType
+          })
+        );
+      },
+      updateLiability: async (input) => {
+        await runMutation(setError, () =>
+          updateConvexLiability({
+            liabilityId: input.id as Id<"liabilities">,
+            name: input.name,
+            institution: input.institution,
+            type: input.type,
+            currency: input.currency,
+            originalPrincipal: input.originalPrincipal,
+            outstandingBalance: input.outstandingBalance,
+            interestRate: input.interestRate,
+            paymentAmount: input.paymentAmount,
+            paymentFrequency: input.paymentFrequency,
+            nextDueDate: input.nextDueDate,
+            rateType: input.rateType
+          })
+        );
+      },
+      archiveLiability: async (liabilityId) => {
+        await runMutation(setError, () => archiveConvexLiability({ liabilityId: liabilityId as Id<"liabilities"> }));
+      },
+      updateSettings: async (input) => {
+        await runMutation(setError, () =>
+          updateConvexUser({
+            country: "HU",
+            locale: input.locale,
+            baseCurrency: input.baseCurrency
+          })
+        );
       }
     }),
     [
       accounts,
+      archiveConvexAccount,
+      archiveConvexLiability,
+      archiveConvexTransaction,
       createAccount,
       createLiability,
       createTransaction,
+      error,
       importConvexTransactions,
       isLoading,
       liabilities,
+      settings,
       transactions,
+      updateConvexAccount,
+      updateConvexLiability,
+      updateConvexUser,
       updateConvexTransaction
     ]
   );
@@ -427,4 +606,15 @@ function normalizeAmount(amount: number, type: TransactionType) {
 
 function formatSyncLabel(timestamp: number) {
   return `Synced ${new Date(timestamp).toLocaleDateString()}`;
+}
+
+async function runMutation<T>(setError: (message: string | null) => void, mutation: () => Promise<T>) {
+  try {
+    setError(null);
+    return await mutation();
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Finance action failed";
+    setError(message);
+    throw caught;
+  }
 }

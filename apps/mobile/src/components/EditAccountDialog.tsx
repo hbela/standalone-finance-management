@@ -4,17 +4,14 @@ import { ScrollView, StyleSheet } from "react-native";
 import { Button, Dialog, HelperText, Portal, SegmentedButtons, TextInput } from "react-native-paper";
 import { z } from "zod";
 
-import type { Currency } from "../data/types";
-import { type NewAccountInput, useFinance } from "../state/FinanceContext";
+import type { Account, Currency } from "../data/types";
+import { type UpdateAccountInput, useFinance } from "../state/FinanceContext";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
 
-type AddAccountDialogProps = {
+type EditAccountDialogProps = {
+  account: Account | null;
   visible: boolean;
   onDismiss: () => void;
-  initialBankId?: string;
-  initialCurrency?: Currency;
-  initialName?: string;
-  initialSource?: NewAccountInput["source"];
 };
 
 const sourceButtons = [
@@ -30,7 +27,7 @@ const currencyButtons = [
   { label: "GBP", value: "GBP" }
 ];
 
-const addAccountSchema = z.object({
+const editAccountSchema = z.object({
   name: z.string().trim().min(1, "Account name is required."),
   source: z.enum(["local_bank", "wise", "manual"]),
   currency: z.enum(["EUR", "HUF", "USD", "GBP"]),
@@ -41,41 +38,41 @@ const addAccountSchema = z.object({
     .transform(Number)
 });
 
-type AddAccountForm = z.input<typeof addAccountSchema>;
+type EditAccountForm = z.input<typeof editAccountSchema>;
 
-export function AddAccountDialog({
-  visible,
-  onDismiss,
-  initialBankId,
-  initialCurrency = "EUR",
-  initialName = "Manual account",
-  initialSource = "manual"
-}: AddAccountDialogProps) {
-  const { addAccount } = useFinance();
-  const defaultValues = useMemo<AddAccountForm>(
+export function EditAccountDialog({ account, visible, onDismiss }: EditAccountDialogProps) {
+  const { archiveAccount, updateAccount } = useFinance();
+  const defaultValues = useMemo<EditAccountForm>(
     () => ({
-      name: initialName,
-      source: initialSource,
-      currency: initialCurrency,
-      balance: "0"
+      name: account?.name ?? "",
+      source: account?.source ?? "manual",
+      currency: account?.currency ?? "EUR",
+      balance: account ? String(account.currentBalance) : "0"
     }),
-    [initialCurrency, initialName, initialSource]
+    [account]
   );
   const form = useForm({
     defaultValues,
     validators: {
-      onChange: addAccountSchema
+      onChange: editAccountSchema
     },
     onSubmit: async ({ value }) => {
-      const account = addAccountSchema.parse(value);
-      await addAccount({
-        name: account.name,
-        source: account.source,
-        currency: account.currency,
-        type: account.source === "wise" ? "wise_balance" : account.source === "manual" ? "cash" : "checking",
-        currentBalance: account.balance,
-        bankId: account.source === "local_bank" ? initialBankId : undefined
-      });
+      if (!account) {
+        return;
+      }
+
+      const parsed = editAccountSchema.parse(value);
+      const input: UpdateAccountInput = {
+        id: account.id,
+        name: parsed.name,
+        source: parsed.source,
+        currency: parsed.currency,
+        type: parsed.source === "wise" ? "wise_balance" : parsed.source === "manual" ? "cash" : "checking",
+        currentBalance: parsed.balance,
+        bankId: parsed.source === "local_bank" ? account.bankId : undefined
+      };
+
+      await updateAccount(input);
       onDismiss();
     }
   });
@@ -89,7 +86,7 @@ export function AddAccountDialog({
   return (
     <Portal>
       <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
-        <Dialog.Title>Add Account</Dialog.Title>
+        <Dialog.Title>Edit Account</Dialog.Title>
         <Dialog.ScrollArea>
           <ScrollView contentContainerStyle={styles.content}>
             <form.Field name="name">
@@ -98,10 +95,10 @@ export function AddAccountDialog({
                   <TextInput
                     error={hasFieldError(field.state.meta.errors)}
                     label="Account name"
-                    value={field.state.value}
+                    mode="outlined"
                     onBlur={field.handleBlur}
                     onChangeText={field.handleChange}
-                    mode="outlined"
+                    value={field.state.value}
                   />
                   <HelperText type="error" visible={hasFieldError(field.state.meta.errors)}>
                     {getFieldError(field.state.meta.errors)}
@@ -112,18 +109,18 @@ export function AddAccountDialog({
             <form.Field name="source">
               {(field) => (
                 <SegmentedButtons
-                  value={field.state.value}
-                  onValueChange={(value) => field.handleChange(value as NewAccountInput["source"])}
                   buttons={sourceButtons}
+                  onValueChange={(value) => field.handleChange(value as Account["source"])}
+                  value={field.state.value}
                 />
               )}
             </form.Field>
             <form.Field name="currency">
               {(field) => (
                 <SegmentedButtons
-                  value={field.state.value}
-                  onValueChange={(value) => field.handleChange(value as Currency)}
                   buttons={currencyButtons}
+                  onValueChange={(value) => field.handleChange(value as Currency)}
+                  value={field.state.value}
                 />
               )}
             </form.Field>
@@ -132,12 +129,12 @@ export function AddAccountDialog({
                 <>
                   <TextInput
                     error={hasFieldError(field.state.meta.errors)}
+                    keyboardType="decimal-pad"
                     label="Current balance"
-                    value={field.state.value}
+                    mode="outlined"
                     onBlur={field.handleBlur}
                     onChangeText={field.handleChange}
-                    keyboardType="decimal-pad"
-                    mode="outlined"
+                    value={field.state.value}
                   />
                   <HelperText type="error" visible={hasFieldError(field.state.meta.errors)}>
                     {getFieldError(field.state.meta.errors)}
@@ -148,10 +145,29 @@ export function AddAccountDialog({
           </ScrollView>
         </Dialog.ScrollArea>
         <Dialog.Actions>
+          <Button
+            disabled={!account}
+            textColor="#BA1A1A"
+            onPress={async () => {
+              if (!account) {
+                return;
+              }
+
+              await archiveAccount(account.id);
+              onDismiss();
+            }}
+          >
+            Archive
+          </Button>
           <Button onPress={onDismiss}>Cancel</Button>
           <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
             {([canSubmit, isSubmitting]) => (
-              <Button mode="contained" disabled={!canSubmit} loading={isSubmitting} onPress={() => void form.handleSubmit()}>
+              <Button
+                disabled={!account || !canSubmit}
+                loading={isSubmitting}
+                mode="contained"
+                onPress={() => void form.handleSubmit()}
+              >
                 Save
               </Button>
             )}
@@ -161,7 +177,6 @@ export function AddAccountDialog({
     </Portal>
   );
 }
-
 
 const styles = StyleSheet.create({
   dialog: {

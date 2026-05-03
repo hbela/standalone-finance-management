@@ -45,6 +45,14 @@ const transactionInput = {
   notes: v.optional(v.string())
 };
 
+type ValidatableTransaction = {
+  postedAt: number;
+  amount: number;
+  baseCurrencyAmount: number;
+  description: string;
+  dedupeHash: string;
+};
+
 export const listForCurrent = query({
   args: {},
   handler: async (ctx) => {
@@ -56,6 +64,7 @@ export const listForCurrent = query({
     return await ctx.db
       .query("transactions")
       .withIndex("by_user_id", (q) => q.eq("userId", user._id))
+      .filter((q) => q.eq(q.field("archivedAt"), undefined))
       .collect();
   }
 });
@@ -63,10 +72,12 @@ export const listForCurrent = query({
 export const createManual = mutation({
   args: transactionInput,
   handler: async (ctx, args) => {
+    validateTransaction(args);
+
     const user = await getOrCreateCurrentUser(ctx);
     const account = await ctx.db.get(args.accountId);
 
-    if (!account || account.userId !== user._id) {
+    if (!account || account.userId !== user._id || account.archivedAt) {
       throw new Error("Account not found");
     }
 
@@ -104,6 +115,11 @@ export const importForAccount = mutation({
     const balanceDeltas = new Map<Id<"accounts">, number>();
 
     for (const transaction of args.transactions) {
+      if (!isValidTransaction(transaction)) {
+        skipped += 1;
+        continue;
+      }
+
       if (seen.has(transaction.dedupeHash)) {
         skipped += 1;
         continue;
@@ -111,7 +127,7 @@ export const importForAccount = mutation({
       seen.add(transaction.dedupeHash);
 
       const account = await ctx.db.get(transaction.accountId);
-      if (!account || account.userId !== user._id) {
+      if (!account || account.userId !== user._id || account.archivedAt) {
         skipped += 1;
         continue;
       }
@@ -166,7 +182,7 @@ export const update = mutation({
     const user = await getOrCreateCurrentUser(ctx);
     const transaction = await ctx.db.get(args.transactionId);
 
-    if (!transaction || transaction.userId !== user._id) {
+    if (!transaction || transaction.userId !== user._id || transaction.archivedAt) {
       throw new Error("Transaction not found");
     }
 
@@ -180,6 +196,35 @@ export const update = mutation({
       isExcludedFromReports: args.isExcludedFromReports,
       updatedAt: Date.now()
     });
+  }
+});
+
+export const archive = mutation({
+  args: {
+    transactionId: v.id("transactions")
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentUser(ctx);
+    const transaction = await ctx.db.get(args.transactionId);
+
+    if (!transaction || transaction.userId !== user._id || transaction.archivedAt) {
+      throw new Error("Transaction not found");
+    }
+
+    const account = await ctx.db.get(transaction.accountId);
+    const now = Date.now();
+
+    await ctx.db.patch(args.transactionId, {
+      archivedAt: now,
+      updatedAt: now
+    });
+
+    if (account && account.userId === user._id && !account.archivedAt) {
+      await ctx.db.patch(account._id, {
+        currentBalance: account.currentBalance - transaction.amount,
+        updatedAt: now
+      });
+    }
   }
 });
 
@@ -198,4 +243,31 @@ async function findDuplicate(
   }
 
   return null;
+}
+
+function validateTransaction(transaction: ValidatableTransaction) {
+  if (!Number.isFinite(transaction.amount) || !Number.isFinite(transaction.baseCurrencyAmount)) {
+    throw new Error("Transaction amount must be a valid number");
+  }
+
+  if (!Number.isFinite(transaction.postedAt)) {
+    throw new Error("Transaction date is invalid");
+  }
+
+  if (transaction.description.trim().length === 0) {
+    throw new Error("Transaction description is required");
+  }
+
+  if (transaction.dedupeHash.trim().length === 0) {
+    throw new Error("Transaction dedupe hash is required");
+  }
+}
+
+function isValidTransaction(transaction: ValidatableTransaction) {
+  try {
+    validateTransaction(transaction);
+    return true;
+  } catch {
+    return false;
+  }
 }

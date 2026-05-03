@@ -10,15 +10,17 @@ This roadmap starts from the current working baseline:
 
 ## Phase 1: Stabilize The MVP
 
+Status: implemented.
+
 Goal: make the current persisted finance workflow dependable enough for daily personal use.
 
-- Add visible loading, empty, and error states for Convex-backed account, transaction, and liability queries.
-- Return real import results from Convex import mutations so the UI reports actual imported/skipped counts.
-- Add delete/archive flows for accounts, transactions, and liabilities, including safe handling for linked records.
-- Add account and liability edit screens, not only transaction edits.
-- Add basic validation for amounts, dates, required fields, and unsupported currencies before sending mutations.
-- Add a lightweight user settings screen for base currency, locale, and sign-out.
-- Update README to describe the real authenticated Convex setup instead of the older client-only baseline.
+- [x] Add visible loading, empty, and error states for Convex-backed account, transaction, and liability queries.
+- [x] Return real import results from Convex import mutations so the UI reports actual imported/skipped counts.
+- [x] Add delete/archive flows for accounts, transactions, and liabilities, including safe handling for linked records.
+- [x] Add account and liability edit screens, not only transaction edits.
+- [x] Add basic validation for amounts, dates, required fields, and unsupported currencies before sending mutations.
+- [x] Add a lightweight user settings screen for base currency, locale, and sign-out.
+- [x] Update README to describe the real authenticated Convex setup instead of the older client-only baseline.
 
 Suggested acceptance check:
 

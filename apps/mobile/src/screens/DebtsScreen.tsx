@@ -3,16 +3,19 @@ import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, ProgressBar, Text } from "react-native-paper";
 
 import { AddLiabilityDialog } from "../components/AddLiabilityDialog";
+import { EditLiabilityDialog } from "../components/EditLiabilityDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import { useFinance } from "../state/FinanceContext";
+import type { Liability } from "../data/types";
 import { toBaseCurrency } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
 export function DebtsScreen() {
-  const { liabilities, isLoading } = useFinance();
+  const { liabilities, isLoading, error, clearError } = useFinance();
   const [addLiabilityVisible, setAddLiabilityVisible] = useState(false);
+  const [selectedLiability, setSelectedLiability] = useState<Liability | null>(null);
   const totalDebt = liabilities.reduce(
     (sum, liability) => sum + toBaseCurrency(liability.outstandingBalance, liability.currency),
     0
@@ -27,6 +30,7 @@ export function DebtsScreen() {
       {isLoading ? (
         <StateCard title="Loading liabilities" detail="Fetching your loans and debt records from Convex." loading />
       ) : null}
+      {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
 
       <Card mode="contained" style={styles.summary}>
         <Card.Content>
@@ -60,7 +64,15 @@ export function DebtsScreen() {
                 : 0;
 
             return (
-              <Card key={liability.id} mode="contained" style={styles.card}>
+              <Card
+                key={liability.id}
+                mode="contained"
+                onPress={() => {
+                  clearError();
+                  setSelectedLiability(liability);
+                }}
+                style={styles.card}
+              >
                 <Card.Content style={styles.cardContent}>
                   <View style={styles.titleRow}>
                     <View style={styles.titleBlock}>
@@ -120,6 +132,11 @@ export function DebtsScreen() {
         <StateCard title="No liabilities yet" detail="Add a loan, card balance, or mortgage to track debt payoff." />
       )}
       <AddLiabilityDialog visible={addLiabilityVisible} onDismiss={() => setAddLiabilityVisible(false)} />
+      <EditLiabilityDialog
+        liability={selectedLiability}
+        visible={selectedLiability !== null}
+        onDismiss={() => setSelectedLiability(null)}
+      />
     </Screen>
   );
 }

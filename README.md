@@ -1,8 +1,8 @@
 # Wise Finance Management
 
-A Turborepo workspace for a multi-currency personal finance cockpit. The current mobile app is an Expo React Native MVP using React Native Paper and mock data, with backend packages now scaffolded for Clerk, Convex, Wise, CSV import, and provider adapters.
+A Turborepo workspace for a multi-currency personal finance cockpit. The mobile app is an Expo React Native MVP using React Native Paper, Clerk auth, Convex persistence, manual finance entry, CSV import, and a Wise-ready API scaffold.
 
-See [ROADMAP.md](./ROADMAP.md) for the next implementation phases now that the Convex-backed MVP flows are working.
+Phase 1 is implemented: signed-in users can create, edit, import, and archive accounts, transactions, and liabilities through Convex-backed flows, with loading, empty, error, validation, and settings surfaces in the app.
 
 ## Run
 
@@ -11,7 +11,7 @@ npm install
 npm run start
 ```
 
-Metro runs from `apps/mobile` on `http://localhost:8081` by default. Open the project with Expo Go or an emulator from the Expo CLI.
+Metro runs from `apps/mobile` on `http://localhost:8081` by default. Open the project with Expo Go, an emulator, or Expo web.
 
 To run the Fastify API scaffold:
 
@@ -23,11 +23,12 @@ The API listens on `http://localhost:4000` and exposes `GET /health`.
 
 Copy `apps/api/.env.example` to `apps/api/.env` and fill in the Clerk, Convex, and Wise values before testing protected routes.
 
-For the Expo app, keep client-safe values in the root `.env.local` with the `EXPO_PUBLIC_` prefix:
+For the Expo app, keep client-safe values in the root `.env.local` with the `EXPO_PUBLIC_` prefix. Set `EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true` to use Clerk and Convex instead of local demo state:
 
 ```bash
 EXPO_PUBLIC_CONVEX_URL=https://your-project.convex.cloud
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_key
+EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true
 ```
 
 The mobile workspace scripts load the root `.env.local`, so browser testing can stay simple from the repo root:
@@ -56,9 +57,9 @@ apps/
   mobile/        Expo React Native app
     src/
       components/   shared Paper-based UI
-      data/         MVP mock banks, accounts, transactions, liabilities
-      screens/      onboarding, dashboard, transactions, debts
-      state/        in-memory finance store for manual MVP flows
+      data/         seed banks, category metadata, and local demo records
+      screens/      onboarding, dashboard, transactions, debts, settings
+      state/        finance context with local demo mode and Convex persistence mode
       theme/        React Native Paper theme
       utils/        money formatting and FX summary helpers
   api/           Fastify backend for backend-only workflows such as Wise
@@ -71,9 +72,18 @@ packages/
 
 - `apps/api` is a TypeScript Fastify service with a `/health` route.
 - `apps/api` has public `/config` and `/banks` routes plus Clerk-protected `/me` and `/wise/*` placeholders.
-- `convex/` contains the first schema, Clerk auth config, and authenticated user/bank functions.
-- `apps/mobile` is ready to wrap the app in Clerk and Convex providers when Expo public env values are set.
+- `convex/` contains the schema, Clerk auth config, authenticated user/bank functions, and user-scoped finance mutations.
+- `apps/mobile` wraps the app in Clerk and Convex providers when Expo public env values are set and auth providers are enabled.
 - `packages/shared` contains the first shared API response and finance domain types.
-- The mobile app remains client-only for now and keeps manually added records in memory for the current app session.
+- Without auth providers, the mobile app runs in local demo mode with in-memory records for the current app session.
 
 Run `npm run convex:dev` once to link this repo to your Convex app and generate Convex's `_generated` TypeScript files.
+
+## MVP Finance Flows
+
+- Dashboard account rows can be edited or archived.
+- Ledger rows can be edited or archived; archiving reverses the transaction's balance impact.
+- CSV import reports the actual Convex imported/skipped counts.
+- Debt cards can be edited or archived.
+- Settings supports base currency, locale, and sign-out.
+- Convex-backed screens show loading, empty, and finance action error states.

@@ -3,18 +3,21 @@ import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, ProgressBar, Text } from "react-native-paper";
 
 import { AddAccountDialog } from "../components/AddAccountDialog";
+import { EditAccountDialog } from "../components/EditAccountDialog";
 import { MetricCard } from "../components/MetricCard";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import { alerts, baseCurrency } from "../data/mockFinance";
+import type { Account } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
 export function DashboardScreen() {
   const [addAccountVisible, setAddAccountVisible] = useState(false);
-  const { accounts, transactions, liabilities, isLoading } = useFinance();
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const { accounts, transactions, liabilities, isLoading, error, clearError } = useFinance();
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
@@ -24,6 +27,7 @@ export function DashboardScreen() {
       {isLoading ? (
         <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from Convex." loading />
       ) : null}
+      {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
 
       <Card mode="contained" style={styles.hero}>
         <Card.Content>
@@ -62,6 +66,10 @@ export function DashboardScreen() {
               <List.Item
                 title={account.name}
                 description={account.lastSyncedAt ?? "Manual balance"}
+                onPress={() => {
+                  clearError();
+                  setSelectedAccount(account);
+                }}
                 left={(props) => (
                   <List.Icon
                     {...props}
@@ -124,6 +132,11 @@ export function DashboardScreen() {
         ))}
       </View>
       <AddAccountDialog visible={addAccountVisible} onDismiss={() => setAddAccountVisible(false)} />
+      <EditAccountDialog
+        account={selectedAccount}
+        visible={selectedAccount !== null}
+        onDismiss={() => setSelectedAccount(null)}
+      />
     </Screen>
   );
 }

@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo } from "react";
+import { useForm } from "@tanstack/react-form";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { Button, Checkbox, Chip, Dialog, Portal, Text, TextInput } from "react-native-paper";
+import { Button, Checkbox, Chip, Dialog, HelperText, Portal, Text, TextInput } from "react-native-paper";
+import { z } from "zod";
 
 import { categoryOptions, transactionTypeOptions } from "../data/categories";
 import type { Transaction, TransactionType } from "../data/types";
 import { type UpdateTransactionInput, useFinance } from "../state/FinanceContext";
+import { getFieldError, hasFieldError } from "../utils/formErrors";
 
 type EditTransactionDialogProps = {
   transaction: Transaction | null;
@@ -12,29 +15,63 @@ type EditTransactionDialogProps = {
   onDismiss: () => void;
 };
 
+const editTransactionSchema = z.object({
+  merchant: z.string().trim().min(1, "Merchant is required."),
+  description: z.string().trim().min(1, "Description is required."),
+  category: z.string().trim().min(1, "Choose a category."),
+  type: z.enum(["expense", "income", "transfer", "loan_payment", "mortgage_payment", "fee", "refund"]),
+  notes: z.string(),
+  isRecurring: z.boolean(),
+  isExcludedFromReports: z.boolean()
+});
+
+type EditTransactionForm = z.input<typeof editTransactionSchema>;
+
 export function EditTransactionDialog({ transaction, visible, onDismiss }: EditTransactionDialogProps) {
-  const { updateTransaction } = useFinance();
-  const [merchant, setMerchant] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Other");
-  const [type, setType] = useState<TransactionType>("expense");
-  const [notes, setNotes] = useState("");
-  const [isRecurring, setIsRecurring] = useState(false);
-  const [isExcludedFromReports, setIsExcludedFromReports] = useState(false);
+  const { archiveTransaction, updateTransaction } = useFinance();
+  const defaultValues = useMemo<EditTransactionForm>(
+    () => ({
+      merchant: transaction?.merchant ?? "",
+      description: transaction?.description ?? "",
+      category: transaction?.category ?? "Other",
+      type: transaction?.type ?? "expense",
+      notes: transaction?.notes ?? "",
+      isRecurring: transaction?.isRecurring ?? false,
+      isExcludedFromReports: transaction?.isExcludedFromReports ?? false
+    }),
+    [transaction]
+  );
+  const form = useForm({
+    defaultValues,
+    validators: {
+      onChange: editTransactionSchema
+    },
+    onSubmit: async ({ value }) => {
+      if (!transaction) {
+        return;
+      }
+
+      const parsed = editTransactionSchema.parse(value);
+      const input: UpdateTransactionInput = {
+        id: transaction.id,
+        category: parsed.category,
+        type: parsed.type,
+        merchant: parsed.merchant,
+        description: parsed.description,
+        notes: parsed.notes.trim().length > 0 ? parsed.notes.trim() : undefined,
+        isRecurring: parsed.isRecurring,
+        isExcludedFromReports: parsed.isExcludedFromReports
+      };
+      await updateTransaction(input);
+      onDismiss();
+    }
+  });
 
   useEffect(() => {
-    if (transaction && visible) {
-      setMerchant(transaction.merchant);
-      setDescription(transaction.description);
-      setCategory(transaction.category);
-      setType(transaction.type);
-      setNotes(transaction.notes ?? "");
-      setIsRecurring(transaction.isRecurring);
-      setIsExcludedFromReports(transaction.isExcludedFromReports);
+    if (visible) {
+      form.reset(defaultValues);
     }
-  }, [transaction, visible]);
-
-  const canSave = Boolean(transaction) && merchant.trim().length > 0 && description.trim().length > 0;
+  }, [defaultValues, form, visible]);
 
   return (
     <Portal>
@@ -42,69 +79,133 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
         <Dialog.Title>Edit Transaction</Dialog.Title>
         <Dialog.ScrollArea>
           <ScrollView contentContainerStyle={styles.content}>
-            <TextInput label="Merchant" value={merchant} onChangeText={setMerchant} mode="outlined" />
-            <TextInput label="Description" value={description} onChangeText={setDescription} mode="outlined" />
+            <form.Field name="merchant">
+              {(field) => (
+                <>
+                  <TextInput
+                    error={hasFieldError(field.state.meta.errors)}
+                    label="Merchant"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChangeText={field.handleChange}
+                    mode="outlined"
+                  />
+                  <HelperText type="error" visible={hasFieldError(field.state.meta.errors)}>
+                    {getFieldError(field.state.meta.errors)}
+                  </HelperText>
+                </>
+              )}
+            </form.Field>
+            <form.Field name="description">
+              {(field) => (
+                <>
+                  <TextInput
+                    error={hasFieldError(field.state.meta.errors)}
+                    label="Description"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChangeText={field.handleChange}
+                    mode="outlined"
+                  />
+                  <HelperText type="error" visible={hasFieldError(field.state.meta.errors)}>
+                    {getFieldError(field.state.meta.errors)}
+                  </HelperText>
+                </>
+              )}
+            </form.Field>
             <Text variant="labelLarge">Type</Text>
-            <View style={styles.chipGrid}>
-              {transactionTypeOptions.map((option) => (
-                <Chip
-                  key={option.value}
-                  selected={type === option.value}
-                  onPress={() => setType(option.value)}
-                  compact
-                >
-                  {option.label}
-                </Chip>
-              ))}
-            </View>
+            <form.Field name="type">
+              {(field) => (
+                <View style={styles.chipGrid}>
+                  {transactionTypeOptions.map((option) => (
+                    <Chip
+                      key={option.value}
+                      selected={field.state.value === option.value}
+                      onPress={() => field.handleChange(option.value as TransactionType)}
+                      compact
+                    >
+                      {option.label}
+                    </Chip>
+                  ))}
+                </View>
+              )}
+            </form.Field>
             <Text variant="labelLarge">Category</Text>
-            <View style={styles.chipGrid}>
-              {categoryOptions.map((option) => (
-                <Chip key={option} selected={category === option} onPress={() => setCategory(option)} compact>
-                  {option}
-                </Chip>
-              ))}
-            </View>
-            <TextInput label="Notes" value={notes} onChangeText={setNotes} mode="outlined" multiline />
-            <View style={styles.checkRow}>
-              <Checkbox status={isRecurring ? "checked" : "unchecked"} onPress={() => setIsRecurring((current) => !current)} />
-              <Text variant="bodyMedium">Recurring</Text>
-            </View>
-            <View style={styles.checkRow}>
-              <Checkbox
-                status={isExcludedFromReports ? "checked" : "unchecked"}
-                onPress={() => setIsExcludedFromReports((current) => !current)}
-              />
-              <Text variant="bodyMedium">Exclude from reports</Text>
-            </View>
+            <form.Field name="category">
+              {(field) => (
+                <View style={styles.chipGrid}>
+                  {categoryOptions.map((option) => (
+                    <Chip key={option} selected={field.state.value === option} onPress={() => field.handleChange(option)} compact>
+                      {option}
+                    </Chip>
+                  ))}
+                </View>
+              )}
+            </form.Field>
+            <form.Field name="notes">
+              {(field) => (
+                <TextInput
+                  label="Notes"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChangeText={field.handleChange}
+                  mode="outlined"
+                  multiline
+                />
+              )}
+            </form.Field>
+            <form.Field name="isRecurring">
+              {(field) => (
+                <View style={styles.checkRow}>
+                  <Checkbox
+                    status={field.state.value ? "checked" : "unchecked"}
+                    onPress={() => field.handleChange(!field.state.value)}
+                  />
+                  <Text variant="bodyMedium">Recurring</Text>
+                </View>
+              )}
+            </form.Field>
+            <form.Field name="isExcludedFromReports">
+              {(field) => (
+                <View style={styles.checkRow}>
+                  <Checkbox
+                    status={field.state.value ? "checked" : "unchecked"}
+                    onPress={() => field.handleChange(!field.state.value)}
+                  />
+                  <Text variant="bodyMedium">Exclude from reports</Text>
+                </View>
+              )}
+            </form.Field>
           </ScrollView>
         </Dialog.ScrollArea>
         <Dialog.Actions>
-          <Button onPress={onDismiss}>Cancel</Button>
           <Button
-            mode="contained"
-            disabled={!canSave}
-            onPress={() => {
+            disabled={!transaction}
+            textColor="#BA1A1A"
+            onPress={async () => {
               if (!transaction) {
                 return;
               }
 
-              const input: UpdateTransactionInput = {
-                id: transaction.id,
-                category,
-                type,
-                merchant: merchant.trim(),
-                description: description.trim(),
-                notes: notes.trim().length > 0 ? notes.trim() : undefined,
-                isRecurring,
-                isExcludedFromReports
-              };
-              updateTransaction(input);
+              await archiveTransaction(transaction.id);
               onDismiss();
             }}
           >
-            Save
+            Delete
           </Button>
+          <Button onPress={onDismiss}>Cancel</Button>
+          <form.Subscribe selector={(state) => [state.canSubmit, state.isSubmitting]}>
+            {([canSubmit, isSubmitting]) => (
+              <Button
+                mode="contained"
+                disabled={!transaction || !canSubmit}
+                loading={isSubmitting}
+                onPress={() => void form.handleSubmit()}
+              >
+                Save
+              </Button>
+            )}
+          </form.Subscribe>
         </Dialog.Actions>
       </Dialog>
     </Portal>

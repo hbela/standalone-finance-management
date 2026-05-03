@@ -10,7 +10,7 @@ import { Shell } from "./src/components/Shell";
 import { FinanceProvider } from "./src/state/FinanceContext";
 import { financeTheme } from "./src/theme/theme";
 
-export type AppTab = "onboarding" | "dashboard" | "transactions" | "debts";
+export type AppTab = "onboarding" | "dashboard" | "transactions" | "debts" | "settings";
 
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;

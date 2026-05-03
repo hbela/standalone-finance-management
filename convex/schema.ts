@@ -69,6 +69,7 @@ export default defineSchema({
     type: accountType,
     currentBalance: v.number(),
     lastSyncedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number()
   }).index("by_user_id", ["userId"]),
@@ -90,6 +91,7 @@ export default defineSchema({
     isExcludedFromReports: v.boolean(),
     dedupeHash: v.string(),
     notes: v.optional(v.string()),
+    archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number()
   })
@@ -124,6 +126,7 @@ export default defineSchema({
     ),
     nextDueDate: v.string(),
     rateType: v.union(v.literal("fixed"), v.literal("variable")),
+    archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number()
   }).index("by_user_id", ["userId"]),

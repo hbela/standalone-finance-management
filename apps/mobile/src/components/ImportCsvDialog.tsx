@@ -20,6 +20,8 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
   const { accounts, importTransactions } = useFinance();
   const [accountId, setAccountId] = useState(initialAccountId ?? accounts[0]?.id ?? "");
   const [csvText, setCsvText] = useState(sampleCsv);
+  const [result, setResult] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const selectedAccount = accounts.find((account) => account.id === accountId) ?? accounts[0];
   const parsed = useMemo(
@@ -39,6 +41,7 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
   useEffect(() => {
     if (visible) {
       setAccountId(initialAccountId ?? accounts[0]?.id ?? "");
+      setResult(null);
     }
   }, [accounts, initialAccountId, visible]);
 
@@ -60,7 +63,9 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
               style={styles.csvInput}
             />
             <HelperText type={parsed.errors.length > 0 ? "error" : "info"} visible>
-              {parsed.errors[0] ?? `${parsed.rows.length} transaction rows ready. Duplicates are skipped on import.`}
+              {parsed.errors[0] ??
+                result ??
+                `${parsed.rows.length} transaction rows ready. Duplicates are skipped on import.`}
             </HelperText>
             <View style={styles.preview}>
               {parsed.rows.slice(0, 3).map((row) => (
@@ -83,12 +88,23 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
           <Button onPress={onDismiss}>Cancel</Button>
           <Button
             mode="contained"
-            disabled={!canImport}
-            onPress={() => {
-              if (selectedAccount) {
-                importTransactions(selectedAccount.id, parsed.rows);
+            disabled={!canImport || isImporting}
+            loading={isImporting}
+            onPress={async () => {
+              if (!selectedAccount) {
+                return;
               }
-              onDismiss();
+
+              setIsImporting(true);
+              try {
+                const importResult = await importTransactions(selectedAccount.id, parsed.rows);
+                setResult(`${importResult.imported} imported, ${importResult.skipped} skipped.`);
+                if (importResult.imported > 0) {
+                  onDismiss();
+                }
+              } finally {
+                setIsImporting(false);
+              }
             }}
           >
             Import
