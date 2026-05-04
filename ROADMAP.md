@@ -46,16 +46,19 @@ Suggested acceptance check:
 
 ## Phase 3: Tink Bank Aggregation
 
+Status: complete.
+
 Goal: add the first real provider sync path by connecting bank accounts through Tink and importing read-only account and transaction data.
 
-- Implement Tink Link start/callback routes in `apps/api`.
-- Store Tink tokens securely outside client-readable state; keep only connection references, status, scopes, and sync metadata in Convex.
-- Add provider-neutral connection metadata, such as `providerConnections`, instead of expanding the Wise-only roadmap shape.
-- Record bank-provider connection, revocation, reconnect, and sync consent/audit events, not only Wise-specific consent.
-- Sync Tink bank accounts into the existing `accounts` table as `source: "local_bank"` with provider account metadata.
-- Sync Tink posted transactions into the existing `transactions` table while reusing Phase 2 dedupe, category, transfer matching, recurring review, and reconciliation behavior.
-- Add connect, reconnect, disconnect, sync status, last synced time, and partial-sync failure states in the mobile app.
-- Keep Tink payment initiation out of this phase; Phase 3 is read-only account and transaction aggregation.
+- [x] Implement Tink Link start/callback routes in `apps/api`.
+- [x] Store Tink tokens securely outside client-readable state; keep only connection references, status, scopes, and sync metadata in Convex.
+- [x] Add provider-neutral connection metadata, such as `providerConnections`, instead of expanding the Wise-only roadmap shape.
+- [x] Record bank-provider connection and sync consent/audit events, not only Wise-specific consent.
+- [x] Sync Tink bank accounts into the existing `accounts` table as `source: "local_bank"` with provider account metadata.
+- [x] Sync Tink posted transactions into the existing `transactions` table while reusing Phase 2 dedupe and reconciliation behavior.
+- [x] Add reconnect, disconnect, and revocation event handling for provider connections.
+- [x] Add connect, reconnect, disconnect, sync status, last synced time, and partial-sync failure states in the mobile app.
+- [x] Keep Tink payment initiation out of this phase; Phase 3 is read-only account and transaction aggregation.
 
 Suggested acceptance check:
 
@@ -143,12 +146,12 @@ Suggested acceptance check:
 
 ## Recommended Next Sprint
 
-Start the Tink-before-Wise provider track:
+Next, start the Wise peer-provider track:
 
-1. Add provider-neutral connection metadata in Convex, alongside or as a replacement path for the current Wise-specific connection table.
-2. Add Tink configuration to the API service and implement Tink Link start/callback scaffolding with OAuth state validation.
-3. Build the Tink account sync path into existing `accounts` as `source: "local_bank"`.
-4. Build the Tink transaction sync path into existing `transactions`, reusing Phase 2 dedupe and review flows.
-5. Add mobile connection and sync-status controls for connect, reconnect, disconnect, and partial failure.
+1. Implement Wise OAuth start/callback routes using the provider connection pattern introduced for Tink.
+2. Store Wise tokens in the API-side token vault and keep only a token reference in Convex.
+3. Sync Wise balances into existing `accounts` without breaking manual, CSV, or Tink data.
+4. Sync Wise statements into existing `transactions` with provider IDs and dedupe.
+5. Add Wise-specific failure states only after read sync is stable.
 
-After that, add Wise as the peer money-movement provider, then revisit provider fallback and payment initiation.
+After that, revisit provider fallback, token rotation, and payment initiation separately.

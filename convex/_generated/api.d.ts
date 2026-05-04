@@ -14,6 +14,7 @@ import type * as categories from "../categories.js";
 import type * as importBatches from "../importBatches.js";
 import type * as liabilities from "../liabilities.js";
 import type * as model from "../model.js";
+import type * as providerConnections from "../providerConnections.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   importBatches: typeof importBatches;
   liabilities: typeof liabilities;
   model: typeof model;
+  providerConnections: typeof providerConnections;
   transactions: typeof transactions;
   users: typeof users;
 }>;

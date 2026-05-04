@@ -16,6 +16,25 @@ const accountSource = v.union(
   v.literal("manual")
 );
 
+const providerName = v.union(v.literal("tink"), v.literal("wise"));
+
+const providerConnectionStatus = v.union(
+  v.literal("pending"),
+  v.literal("connected"),
+  v.literal("sync_failed"),
+  v.literal("reconnect_required"),
+  v.literal("disconnected"),
+  v.literal("revoked")
+);
+
+const providerSyncStatus = v.union(
+  v.literal("never_synced"),
+  v.literal("syncing"),
+  v.literal("success"),
+  v.literal("partial_failure"),
+  v.literal("failed")
+);
+
 const accountType = v.union(
   v.literal("checking"),
   v.literal("savings"),
@@ -176,10 +195,48 @@ export default defineSchema({
     updatedAt: v.number()
   }).index("by_user_id", ["userId"]),
 
+  providerConnections: defineTable({
+    userId: v.id("users"),
+    provider: providerName,
+    externalUserId: v.optional(v.string()),
+    country: countryCode,
+    status: providerConnectionStatus,
+    scopes: v.array(v.string()),
+    tokenRef: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.number()),
+    lastSyncStatus: providerSyncStatus,
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_provider", ["userId", "provider"]),
+
+  providerConnectionAttempts: defineTable({
+    userId: v.id("users"),
+    provider: providerName,
+    country: countryCode,
+    stateHash: v.string(),
+    status: v.union(
+      v.literal("started"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_state_hash", ["stateHash"]),
+
   consentEvents: defineTable({
     userId: v.id("users"),
     type: v.union(
       v.literal("wise_connection"),
+      v.literal("provider_connection"),
+      v.literal("provider_reconnect"),
+      v.literal("provider_disconnect"),
+      v.literal("provider_sync"),
       v.literal("bank_import"),
       v.literal("data_export"),
       v.literal("data_deletion")

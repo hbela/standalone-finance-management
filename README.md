@@ -29,6 +29,7 @@ For the Expo app, keep client-safe values in the root `.env.local` with the `EXP
 EXPO_PUBLIC_CONVEX_URL=https://your-project.convex.cloud
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_key
 EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true
+EXPO_PUBLIC_API_URL=http://localhost:4000
 ```
 
 The mobile workspace scripts load the root `.env.local`, so browser testing can stay simple from the repo root:

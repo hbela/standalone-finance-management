@@ -330,6 +330,125 @@ export const archive = mutation({
   }
 });
 
+export const apiImportProviderTransactions = mutation({
+  args: {
+    apiSecret: v.string(),
+    clerkUserId: v.string(),
+    provider: v.literal("tink"),
+    transactions: v.array(
+      v.object({
+        providerAccountId: v.string(),
+        providerTransactionId: v.string(),
+        postedAt: v.number(),
+        amount: v.number(),
+        currency: currencyCode,
+        baseCurrencyAmount: v.number(),
+        description: v.string(),
+        merchant: v.optional(v.string()),
+        categoryId: v.optional(v.string()),
+        type: transactionType,
+        isRecurring: v.boolean(),
+        isExcludedFromReports: v.boolean(),
+        dedupeHash: v.string()
+      })
+    )
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const now = Date.now();
+    const accounts = await ctx.db
+      .query("accounts")
+      .withIndex("by_user_id", (q) => q.eq("userId", user._id))
+      .collect();
+    let imported = 0;
+    let skipped = 0;
+
+    for (const transaction of args.transactions) {
+      const account = accounts.find(
+        (candidate) =>
+          candidate.source === "local_bank" &&
+          candidate.providerAccountId === transaction.providerAccountId &&
+          !candidate.archivedAt
+      );
+
+      if (!account) {
+        skipped += 1;
+        continue;
+      }
+
+      const input = {
+        accountId: account._id,
+        source: "local_bank" as const,
+        providerTransactionId: transaction.providerTransactionId,
+        postedAt: transaction.postedAt,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        baseCurrencyAmount: transaction.baseCurrencyAmount,
+        description: transaction.description,
+        merchant: transaction.merchant,
+        categoryId: transaction.categoryId,
+        type: transaction.type,
+        isRecurring: transaction.isRecurring,
+        isExcludedFromReports: transaction.isExcludedFromReports,
+        dedupeHash: transaction.dedupeHash
+      };
+
+      if (!isValidTransaction(input)) {
+        skipped += 1;
+        continue;
+      }
+
+      const duplicate = await findDuplicate(ctx, user._id, input);
+      if (duplicate) {
+        skipped += 1;
+        continue;
+      }
+
+      await ctx.db.insert("transactions", {
+        userId: user._id,
+        ...input,
+        createdAt: now,
+        updatedAt: now
+      });
+      imported += 1;
+    }
+
+    const connection = await ctx.db
+      .query("providerConnections")
+      .withIndex("by_user_provider", (q) =>
+        q.eq("userId", user._id).eq("provider", args.provider)
+      )
+      .unique();
+
+    if (connection) {
+      await ctx.db.patch(connection._id, {
+        status: "connected",
+        lastSyncedAt: now,
+        lastSyncStatus: "success",
+        lastError: undefined,
+        updatedAt: now
+      });
+    }
+
+    await ctx.db.insert("consentEvents", {
+      userId: user._id,
+      type: "provider_sync",
+      status: "granted",
+      metadata: {
+        provider: args.provider,
+        resource: "transactions",
+        imported: String(imported),
+        skipped: String(skipped)
+      },
+      createdAt: now
+    });
+
+    return { imported, skipped };
+  }
+});
+
 async function findDuplicate(
   ctx: MutationCtx,
   userId: Awaited<ReturnType<typeof getOrCreateCurrentUser>>["_id"],
@@ -464,5 +583,42 @@ function validateTransaction(transaction: ValidatableTransaction) {
 
   if (transaction.dedupeHash.trim().length === 0) {
     throw new Error("Transaction dedupe hash is required");
+  }
+}
+
+async function getOrCreateUserByClerkId(
+  ctx: MutationCtx,
+  clerkUserId: string
+) {
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+    .unique();
+
+  if (existing) {
+    return existing;
+  }
+
+  const now = Date.now();
+  const userId = await ctx.db.insert("users", {
+    clerkUserId,
+    country: "HU",
+    locale: "en-US",
+    baseCurrency: "EUR",
+    createdAt: now,
+    updatedAt: now
+  });
+  const created = await ctx.db.get(userId);
+
+  if (!created) {
+    throw new Error("Could not create user profile");
+  }
+
+  return created;
+}
+
+function verifyApiSecret(apiSecret: string) {
+  if (!process.env.API_SERVICE_SECRET || apiSecret !== process.env.API_SERVICE_SECRET) {
+    throw new Error("Invalid API service secret");
   }
 }
