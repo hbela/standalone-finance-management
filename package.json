@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "turbo dev --parallel",
     "build": "turbo build",
+    "test": "turbo test",
     "typecheck": "turbo typecheck",
     "start": "npm run start -w @wise-finance/mobile",
     "start:mobile": "npm run start -w @wise-finance/mobile",

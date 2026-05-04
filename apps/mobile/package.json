@@ -12,6 +12,8 @@
     "ios": "dotenv -e ../../.env.local -- expo start --ios",
     "web": "dotenv -e ../../.env.local -- expo start --web",
     "web:clear": "dotenv -e ../../.env.local -- expo start --web --clear",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -31,7 +33,18 @@
     "zod": "^4.4.2"
   },
   "devDependencies": {
+    "@testing-library/react-native": "^13.3.3",
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.1.10",
-    "babel-preset-expo": "^55.0.19"
+    "babel-preset-expo": "^55.0.19",
+    "jest": "^29.7.0",
+    "jest-expo": "^55.0.16",
+    "react-test-renderer": "^19.2.5"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.ts"
+    ]
   }
 }

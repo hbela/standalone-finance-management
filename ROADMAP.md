@@ -5,8 +5,8 @@ This roadmap starts from the current working baseline:
 - Clerk and Convex authentication are connected.
 - Accounts, expenses, liabilities, edits, and CSV import persist in Convex.
 - The mobile app has onboarding, dashboard, transactions, and debts screens.
-- The API service has Clerk-protected routes and Wise placeholders.
-- The Convex schema already includes future tables for Wise connections and consent events.
+- The API service has Clerk-protected routes and provider placeholders.
+- The Convex schema already includes future tables for Wise connections and consent events, and should evolve toward provider-neutral connection metadata.
 
 ## Phase 1: Stabilize The MVP
 
@@ -44,24 +44,40 @@ Suggested acceptance check:
 
 - A user can import a bank statement, review what changed, fix categories, and understand whether balances still line up.
 
-## Phase 3: Wise Integration
+## Phase 3: Tink Bank Aggregation
 
-Goal: replace Wise placeholders with a real, consented sync path.
+Goal: add the first real provider sync path by connecting bank accounts through Tink and importing read-only account and transaction data.
 
-- Implement Wise OAuth start/callback routes in `apps/api`.
-- Store Wise tokens securely outside client-readable state; keep only references/status in Convex.
-- Persist Wise connection status in `wiseConnections`.
-- Record consent grants/revocations in `consentEvents`.
-- Fetch Wise profiles, balances, and transactions through the API service.
-- Add Convex mutations/actions for syncing Wise accounts and transactions into the existing account/transaction tables.
-- Add sync status, last synced time, and reconnect/disconnect controls in the mobile app.
-- Add failure handling for expired tokens, revoked access, and partial syncs.
+- Implement Tink Link start/callback routes in `apps/api`.
+- Store Tink tokens securely outside client-readable state; keep only connection references, status, scopes, and sync metadata in Convex.
+- Add provider-neutral connection metadata, such as `providerConnections`, instead of expanding the Wise-only roadmap shape.
+- Record bank-provider connection, revocation, reconnect, and sync consent/audit events, not only Wise-specific consent.
+- Sync Tink bank accounts into the existing `accounts` table as `source: "local_bank"` with provider account metadata.
+- Sync Tink posted transactions into the existing `transactions` table while reusing Phase 2 dedupe, category, transfer matching, recurring review, and reconciliation behavior.
+- Add connect, reconnect, disconnect, sync status, last synced time, and partial-sync failure states in the mobile app.
+- Keep Tink payment initiation out of this phase; Phase 3 is read-only account and transaction aggregation.
 
 Suggested acceptance check:
 
-- A user can connect Wise, sync balances and transactions, disconnect Wise, and still keep previously imported/manual data intact.
+- A signed-in user can connect a bank through Tink, sync accounts and posted transactions, see sync status, reconnect or disconnect, and keep manual/CSV data intact.
 
-## Phase 4: Insights And Planning
+## Phase 4: Wise Wallet And Money Movement
+
+Goal: add Wise as the peer provider for wallet balances, statements, transfers, and FX after read-only bank aggregation is stable.
+
+- Implement Wise OAuth start/callback routes in `apps/api` using the provider connection pattern introduced for Tink.
+- Store Wise tokens securely outside client-readable state; keep only references/status in Convex.
+- Fetch Wise profiles, balances, and statements through the API service.
+- Sync Wise balances and statements into the existing account/transaction model without breaking manual, CSV, or Tink data.
+- Add Wise transfer and FX conversion tracking only after Wise read sync is stable.
+- Add failure handling for expired tokens, revoked access, partial syncs, failed transfers, and FX fee visibility.
+- Preserve the product distinction: Tink feeds the ledger from connected banks; Wise can both feed wallet data and move money.
+
+Suggested acceptance check:
+
+- A user can connect Wise, sync balances/statements, review FX and transfer activity, disconnect Wise, and keep Tink/manual/CSV records intact.
+
+## Phase 5: Insights And Planning
 
 Goal: turn stored records into decisions.
 
@@ -77,7 +93,22 @@ Suggested acceptance check:
 
 - The dashboard answers: what changed this month, where money went, which debts matter most, and how much is exposed by currency.
 
-## Phase 5: Privacy, Security, And Portability
+## Phase 6: Provider Coverage And Payment Readiness
+
+Goal: expand provider resilience and prepare safely for payment-capable integrations.
+
+- Add TrueLayer or another aggregator as a fallback provider only after Tink sync is stable.
+- Treat provider fallback as an explicit user reauthorization flow, not a silent retry.
+- Add cross-provider transaction fingerprinting so the same bank account connected through multiple providers does not duplicate ledger activity.
+- Add retry scheduling for temporary provider failures and clear reconnect prompts for expired or revoked consent.
+- Evaluate Tink payment initiation separately with consent, SCA, compliance, audit, and failure-state requirements before implementation.
+- Keep bank-to-bank payments disabled until legal, security, and UX review are complete.
+
+Suggested acceptance check:
+
+- A user can recover from unsupported-bank or provider-outage cases through an explicit reconnect/fallback flow, and duplicate provider data does not inflate balances or reports.
+
+## Phase 7: Privacy, Security, And Portability
 
 Goal: make the app safe to trust with personal finance data.
 
@@ -87,13 +118,14 @@ Goal: make the app safe to trust with personal finance data.
 - Review Clerk JWT audience, issuer, and Convex auth config for production environments.
 - Add environment-specific configuration docs for local, preview, and production deployments.
 - Add rate limits and stricter response handling to protected API routes.
+- Review provider token storage, encryption, rotation, revocation, and audit handling across Tink and Wise.
 - Define a backup/restore approach for Convex data.
 
 Suggested acceptance check:
 
 - A user can understand, export, and delete their data, and sensitive backend actions are protected and auditable.
 
-## Phase 6: Product Polish And Release
+## Phase 8: Product Polish And Release
 
 Goal: make the app feel finished on web/mobile and ready to share.
 
@@ -111,12 +143,12 @@ Suggested acceptance check:
 
 ## Recommended Next Sprint
 
-Start with the smallest set of work that makes the new Convex-backed app feel solid:
+Start the Tink-before-Wise provider track:
 
-1. Add loading/error/empty states around Convex finance data.
-2. Make CSV import return actual Convex import/skipped counts.
-3. Add delete/edit coverage for the core records.
-4. Add a simple settings/sign-out screen.
-5. Refresh README with the current Clerk/Convex setup.
+1. Add provider-neutral connection metadata in Convex, alongside or as a replacement path for the current Wise-specific connection table.
+2. Add Tink configuration to the API service and implement Tink Link start/callback scaffolding with OAuth state validation.
+3. Build the Tink account sync path into existing `accounts` as `source: "local_bank"`.
+4. Build the Tink transaction sync path into existing `transactions`, reusing Phase 2 dedupe and review flows.
+5. Add mobile connection and sync-status controls for connect, reconnect, disconnect, and partial failure.
 
-After that, the best product leap is Phase 2 import quality, then Phase 3 Wise sync.
+After that, add Wise as the peer money-movement provider, then revisit provider fallback and payment initiation.
