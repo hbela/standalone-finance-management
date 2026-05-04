@@ -10,7 +10,7 @@ export const transactionTypeOptions: Array<{ label: string; value: TransactionTy
   { label: "Refund", value: "refund" }
 ];
 
-export const categoryOptions = [
+export const defaultCategoryNames = [
   "Salary",
   "Freelance",
   "Housing",
@@ -28,3 +28,9 @@ export const categoryOptions = [
   "Internal transfer",
   "Other"
 ];
+
+export const defaultCategories = defaultCategoryNames.map((name) => ({
+  id: name,
+  name,
+  isDefault: true
+}));

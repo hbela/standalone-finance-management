@@ -29,6 +29,12 @@ export type TransactionType =
   | "fee"
   | "refund";
 
+export type Category = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+};
+
 export type Transaction = {
   id: string;
   accountId: string;
@@ -43,8 +49,23 @@ export type Transaction = {
   type: TransactionType;
   isRecurring: boolean;
   isExcludedFromReports: boolean;
+  transferMatchId?: string;
   dedupeHash: string;
   notes?: string;
+};
+
+export type ImportBatch = {
+  id: string;
+  accountId: string;
+  source: "csv";
+  status: "completed" | "reverted";
+  sourceName?: string;
+  rowCount: number;
+  importedCount: number;
+  skippedCount: number;
+  columnMapping: Record<string, string>;
+  dateFormat: string;
+  createdAt: string;
 };
 
 export type Liability = {

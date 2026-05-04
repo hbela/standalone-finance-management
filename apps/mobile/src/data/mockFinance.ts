@@ -140,6 +140,38 @@ export const transactions: Transaction[] = [
     isRecurring: false,
     isExcludedFromReports: true,
     dedupeHash: "a2|2026-04-28|-800.00|EUR|eur to huf conversion|wise"
+  },
+  {
+    id: "t6",
+    accountId: "a2",
+    source: "wise",
+    postedAt: "2026-04-05",
+    amount: -16.99,
+    currency: "EUR",
+    baseCurrencyAmount: -16.99,
+    description: "Music subscription",
+    merchant: "Spotify",
+    category: "Subscriptions",
+    type: "expense",
+    isRecurring: false,
+    isExcludedFromReports: false,
+    dedupeHash: "a2|2026-04-05|-16.99|EUR|music subscription|spotify"
+  },
+  {
+    id: "t7",
+    accountId: "a2",
+    source: "wise",
+    postedAt: "2026-05-05",
+    amount: -16.99,
+    currency: "EUR",
+    baseCurrencyAmount: -16.99,
+    description: "Music subscription",
+    merchant: "Spotify",
+    category: "Subscriptions",
+    type: "expense",
+    isRecurring: false,
+    isExcludedFromReports: false,
+    dedupeHash: "a2|2026-05-05|-16.99|EUR|music subscription|spotify"
   }
 ];
 

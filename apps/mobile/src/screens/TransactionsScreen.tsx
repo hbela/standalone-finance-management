@@ -11,6 +11,7 @@ import { StateCard } from "../components/StateCard";
 import type { Transaction, TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { formatSignedMoney } from "../utils/money";
+import { detectRecurringCandidates, type RecurringCandidate } from "../utils/recurring";
 
 const filterOptions = [
   { value: "all", label: "All" },
@@ -20,12 +21,13 @@ const filterOptions = [
 ];
 
 export function TransactionsScreen() {
-  const { transactions, isLoading, error, clearError } = useFinance();
+  const { transactions, isLoading, error, clearError, updateTransaction } = useFinance();
   const [addTransactionVisible, setAddTransactionVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
+  const [dismissedRecurringCandidates, setDismissedRecurringCandidates] = useState<string[]>([]);
 
   const visibleTransactions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -43,6 +45,32 @@ export function TransactionsScreen() {
       return matchesFilter && matchesQuery;
     });
   }, [filter, query, transactions]);
+
+  const recurringCandidates = useMemo(
+    () =>
+      detectRecurringCandidates(transactions)
+        .filter((candidate) => !dismissedRecurringCandidates.includes(candidate.id))
+        .slice(0, 3),
+    [dismissedRecurringCandidates, transactions]
+  );
+
+  const confirmRecurringCandidate = async (candidate: RecurringCandidate) => {
+    await Promise.all(
+      candidate.transactions.map((transaction) =>
+        updateTransaction({
+          id: transaction.id,
+          category: transaction.category,
+          type: transaction.type,
+          merchant: transaction.merchant,
+          description: transaction.description,
+          notes: transaction.notes,
+          isRecurring: true,
+          isExcludedFromReports: transaction.isExcludedFromReports,
+          transferMatchId: transaction.transferMatchId ?? null
+        })
+      )
+    );
+  };
 
   return (
     <Screen>
@@ -70,6 +98,59 @@ export function TransactionsScreen() {
           </Button>
         </View>
       </View>
+      {recurringCandidates.length > 0 ? (
+        <Card mode="contained" style={styles.card}>
+          <Card.Title
+            title="Recurring Payment Review"
+            subtitle={`${recurringCandidates.length} likely repeat ${recurringCandidates.length === 1 ? "payment" : "payments"}`}
+            left={(props) => <List.Icon {...props} icon="calendar-sync" />}
+          />
+          {recurringCandidates.map((candidate, index) => (
+            <View key={candidate.id}>
+              <List.Item
+                title={candidate.merchant}
+                description={`${formatInterval(candidate.interval)} . ${candidate.transactions.length} payments . next around ${candidate.nextExpectedDate}`}
+                left={(props) => <List.Icon {...props} icon="repeat" />}
+                right={() => (
+                  <View style={styles.amountBlock}>
+                    <Text variant="titleSmall" style={candidate.averageAmount > 0 ? styles.positive : styles.negative}>
+                      {formatSignedMoney(candidate.averageAmount, candidate.currency)}
+                    </Text>
+                    <Text variant="bodySmall" style={styles.muted}>
+                      {candidate.confidence} confidence
+                    </Text>
+                  </View>
+                )}
+              />
+              <View style={styles.metaRow}>
+                <Chip compact icon="tag-outline">
+                  {candidate.category}
+                </Chip>
+                <Button
+                  compact
+                  mode="outlined"
+                  icon="eye-outline"
+                  onPress={() => setSelectedTransaction(candidate.transactions[candidate.transactions.length - 1] ?? null)}
+                >
+                  Review
+                </Button>
+                <Button compact mode="contained-tonal" icon="check" onPress={() => void confirmRecurringCandidate(candidate)}>
+                  Mark recurring
+                </Button>
+                <Button
+                  compact
+                  mode="text"
+                  icon="close"
+                  onPress={() => setDismissedRecurringCandidates((current) => [...current, candidate.id])}
+                >
+                  Dismiss
+                </Button>
+              </View>
+              {index < recurringCandidates.length - 1 ? <Divider /> : null}
+            </View>
+          ))}
+        </Card>
+      ) : null}
       {visibleTransactions.length > 0 ? (
         <Card mode="contained" style={styles.card}>
           {visibleTransactions.map((transaction, index) => (
@@ -101,6 +182,7 @@ export function TransactionsScreen() {
                   {transaction.source.replace("_", " ")}
                 </Chip>
                 {transaction.isRecurring ? <Chip compact icon="repeat">Recurring</Chip> : null}
+                {transaction.transferMatchId ? <Chip compact icon="swap-horizontal">Matched transfer</Chip> : null}
                 {transaction.isExcludedFromReports ? <Chip compact icon="eye-off">Excluded</Chip> : null}
                 {transaction.notes ? <Chip compact icon="note-text-outline">Notes</Chip> : null}
               </View>
@@ -127,6 +209,21 @@ export function TransactionsScreen() {
       />
     </Screen>
   );
+}
+
+function formatInterval(interval: RecurringCandidate["interval"]) {
+  switch (interval) {
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Every 2 weeks";
+    case "quarterly":
+      return "Quarterly";
+    case "yearly":
+      return "Yearly";
+    default:
+      return "Monthly";
+  }
 }
 
 function iconForType(type: TransactionType) {

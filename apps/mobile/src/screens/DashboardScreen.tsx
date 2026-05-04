@@ -11,7 +11,7 @@ import { StateCard } from "../components/StateCard";
 import { alerts, baseCurrency } from "../data/mockFinance";
 import type { Account } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
-import { getCurrencyExposure, getDashboardSummary } from "../utils/finance";
+import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
 export function DashboardScreen() {
@@ -20,6 +20,8 @@ export function DashboardScreen() {
   const { accounts, transactions, liabilities, isLoading, error, clearError } = useFinance();
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
+  const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
+  const unreconciledAccounts = reconciliations.filter((reconciliation) => !reconciliation.isBalanced);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
   return (
@@ -28,6 +30,13 @@ export function DashboardScreen() {
         <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from Convex." loading />
       ) : null}
       {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
+      {unreconciledAccounts.length > 0 ? (
+        <StateCard
+          title="Balance reconciliation needed"
+          detail={`${unreconciledAccounts.length} ${unreconciledAccounts.length === 1 ? "account has" : "accounts have"} a stored balance that differs from its ledger total.`}
+          tone="warning"
+        />
+      ) : null}
 
       <Card mode="contained" style={styles.hero}>
         <Card.Content>
@@ -61,31 +70,46 @@ export function DashboardScreen() {
       <SectionTitle title="Cash By Account" action="Manage" />
       {accounts.length > 0 ? (
         <Card mode="contained" style={styles.card}>
-          {accounts.map((account, index) => (
-            <View key={account.id}>
+          {reconciliations.map((reconciliation, index) => (
+            <View key={reconciliation.account.id}>
               <List.Item
-                title={account.name}
-                description={account.lastSyncedAt ?? "Manual balance"}
+                title={reconciliation.account.name}
+                description={reconciliation.account.lastSyncedAt ?? "Manual balance"}
                 onPress={() => {
                   clearError();
-                  setSelectedAccount(account);
+                  setSelectedAccount(reconciliation.account);
                 }}
                 left={(props) => (
                   <List.Icon
                     {...props}
-                    icon={account.source === "wise" ? "swap-horizontal-circle" : "bank"}
+                    icon={reconciliation.account.source === "wise" ? "swap-horizontal-circle" : "bank"}
                   />
                 )}
                 right={() => (
                   <View style={styles.amountBlock}>
-                    <Text variant="titleMedium">{formatMoney(account.currentBalance, account.currency)}</Text>
+                    <Text variant="titleMedium">
+                      {formatMoney(reconciliation.account.currentBalance, reconciliation.account.currency)}
+                    </Text>
                     <Text variant="bodySmall" style={styles.muted}>
-                      {account.source.replace("_", " ")}
+                      {reconciliation.account.source.replace("_", " ")}
                     </Text>
                   </View>
                 )}
               />
-              {index < accounts.length - 1 ? <Divider /> : null}
+              <View style={styles.reconciliationRow}>
+                <Chip compact icon={reconciliation.isBalanced ? "check-circle-outline" : "alert-circle-outline"}>
+                  {reconciliation.isBalanced ? "Reconciled" : "Needs reconciliation"}
+                </Chip>
+                <Text variant="bodySmall" style={reconciliation.isBalanced ? styles.muted : styles.warningText}>
+                  Ledger {formatMoney(reconciliation.computedBalance, reconciliation.account.currency)}
+                </Text>
+                {!reconciliation.isBalanced ? (
+                  <Text variant="bodySmall" style={styles.warningText}>
+                    Difference {formatMoney(reconciliation.difference, reconciliation.account.currency)}
+                  </Text>
+                ) : null}
+              </View>
+              {index < reconciliations.length - 1 ? <Divider /> : null}
             </View>
           ))}
         </Card>
@@ -177,8 +201,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "center"
   },
+  reconciliationRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 16
+  },
   muted: {
     color: "#65727D"
+  },
+  warningText: {
+    color: "#8A3A24"
   },
   exposureList: {
     gap: 14

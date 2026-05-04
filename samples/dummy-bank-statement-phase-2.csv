@@ -1,0 +1,21 @@
+booking_date,transaction_amount,ccy,payee,memo,category,transaction_type
+01/04/2026,850000,HUF,Acme Payroll,April salary,Salary,income
+02/04/2026,-18450,HUF,Aldi Budapest,Weekly groceries,Food,expense
+03/04/2026,-12990,HUF,Lidl Budapest,Groceries and household basics,Food,expense
+04/04/2026,-16500,HUF,BKK,Monthly transport pass,Transport,expense
+05/04/2026,-4990,HUF,Netflix,Streaming subscription,Subscriptions,expense
+06/04/2026,-7290,HUF,Telekom,Mobile plan,Utilities,expense
+07/04/2026,-120000,HUF,Landlord,April rent,Housing,expense
+08/04/2026,-15000,HUF,Wise Transfer,Move savings to EUR account,Internal transfer,transfer
+09/04/2026,15000,HUF,Wise Transfer,Move savings from HUF account,Internal transfer,transfer
+10/04/2026,-3820,HUF,DM Drogerie,Pharmacy and toiletries,Healthcare,expense
+11/04/2026,-9900,HUF,Bookline,Finance book,Education,expense
+12/04/2026,-26000,HUF,MOL,Petrol,Transport,expense
+13/04/2026,-18900,HUF,Restaurant Deryne,Dinner,Food,expense
+14/04/2026,125000,HUF,Client Beta,Invoice 2026-04-B,Freelance,income
+15/04/2026,-43000,HUF,NAV,Quarterly tax prepayment,Taxes,expense
+16/04/2026,-3190,HUF,Raiffeisen,Bank account fee,Fees,fee
+17/04/2026,7990,HUF,Zara,Returned shirt refund,Other,refund
+18/04/2026,-75000,HUF,OTP Mortgage,Monthly mortgage payment,Mortgage payment,mortgage_payment
+19/04/2026,-42000,HUF,Cofidis,Personal loan payment,Loan payment,loan_payment
+20/04/2026,-12990,HUF,Lidl Budapest,Groceries and household basics,Food,expense

@@ -12,6 +12,7 @@ export function toBaseCurrency(amount: number, currency: Currency): number {
 }
 
 export function getDashboardSummary(accounts: Account[], transactions: Transaction[], liabilities: Liability[]) {
+  const reportableTransactions = transactions.filter((transaction) => !transaction.isExcludedFromReports);
   const cash = accounts.reduce(
     (sum, account) => sum + toBaseCurrency(account.currentBalance, account.currency),
     0
@@ -20,13 +21,13 @@ export function getDashboardSummary(accounts: Account[], transactions: Transacti
     (sum, liability) => sum + toBaseCurrency(liability.outstandingBalance, liability.currency),
     0
   );
-  const income = transactions
+  const income = reportableTransactions
     .filter((transaction) => transaction.type === "income")
     .reduce((sum, transaction) => sum + transaction.baseCurrencyAmount, 0);
-  const expenses = transactions
+  const expenses = reportableTransactions
     .filter((transaction) => ["expense", "fee"].includes(transaction.type))
     .reduce((sum, transaction) => sum + Math.abs(transaction.baseCurrencyAmount), 0);
-  const debtPayments = transactions
+  const debtPayments = reportableTransactions
     .filter((transaction) => ["loan_payment", "mortgage_payment"].includes(transaction.type))
     .reduce((sum, transaction) => sum + Math.abs(transaction.baseCurrencyAmount), 0);
 
@@ -47,4 +48,40 @@ export function getCurrencyExposure(accounts: Account[]) {
     amount: account.currentBalance,
     baseAmount: toBaseCurrency(account.currentBalance, account.currency)
   }));
+}
+
+export type AccountBalanceReconciliation = {
+  account: Account;
+  computedBalance: number;
+  difference: number;
+  transactionCount: number;
+  isBalanced: boolean;
+};
+
+export function getAccountBalanceReconciliations(
+  accounts: Account[],
+  transactions: Transaction[]
+): AccountBalanceReconciliation[] {
+  const transactionsByAccount = transactions.reduce<Map<string, Transaction[]>>((groups, transaction) => {
+    groups.set(transaction.accountId, [...(groups.get(transaction.accountId) ?? []), transaction]);
+    return groups;
+  }, new Map());
+
+  return accounts.map((account) => {
+    const accountTransactions = transactionsByAccount.get(account.id) ?? [];
+    const computedBalance = accountTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+    const difference = account.currentBalance - computedBalance;
+
+    return {
+      account,
+      computedBalance,
+      difference,
+      transactionCount: accountTransactions.length,
+      isBalanced: Math.abs(difference) <= getBalanceTolerance(account.currency)
+    };
+  });
+}
+
+function getBalanceTolerance(currency: Currency) {
+  return currency === "HUF" ? 1 : 0.01;
 }

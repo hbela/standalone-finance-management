@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button, Card, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
+import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
@@ -20,11 +20,17 @@ const currencyButtons = [
 ];
 
 export function SettingsScreen({ onSignOut }: SettingsScreenProps) {
-  const { clearError, error, isPersisted, settings, updateSettings } = useFinance();
+  const { addCategory, archiveCategory, categories, clearError, error, isPersisted, settings, updateSettings } = useFinance();
   const [baseCurrency, setBaseCurrency] = useState<Currency>(settings.baseCurrency);
   const [locale, setLocale] = useState(settings.locale);
+  const [categoryName, setCategoryName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
   const hasChanges = baseCurrency !== settings.baseCurrency || locale.trim() !== settings.locale;
+  const normalizedCategoryName = categoryName.trim().replace(/\s+/g, " ");
+  const categoryExists = categories.some(
+    (category) => category.name.toLowerCase() === normalizedCategoryName.toLowerCase()
+  );
   const localeError = useMemo(() => {
     if (locale.trim().length === 0) {
       return "Locale is required.";
@@ -96,6 +102,55 @@ export function SettingsScreen({ onSignOut }: SettingsScreenProps) {
         </Card.Content>
       </Card>
 
+      <SectionTitle title="Categories" action={`${categories.length} active`} />
+      <Card mode="contained" style={styles.card}>
+        <Card.Content style={styles.content}>
+          <View style={styles.categoryInputRow}>
+            <TextInput
+              label="New category"
+              mode="outlined"
+              onChangeText={(value) => {
+                clearError();
+                setCategoryName(value);
+              }}
+              style={styles.categoryInput}
+              value={categoryName}
+            />
+            <Button
+              disabled={normalizedCategoryName.length === 0 || categoryExists || isSavingCategory}
+              loading={isSavingCategory}
+              mode="contained"
+              onPress={async () => {
+                setIsSavingCategory(true);
+                try {
+                  await addCategory(normalizedCategoryName);
+                  setCategoryName("");
+                } finally {
+                  setIsSavingCategory(false);
+                }
+              }}
+            >
+              Add
+            </Button>
+          </View>
+          <HelperText type={categoryExists ? "error" : "info"} visible>
+            {categoryExists ? "That category already exists." : "New categories appear in manual entries, edits, and CSV mapping."}
+          </HelperText>
+          <View style={styles.categoryGrid}>
+            {categories.map((category) => (
+              <Chip
+                key={category.id}
+                compact
+                icon={category.isDefault ? "lock-outline" : "tag-outline"}
+                onClose={category.isDefault ? undefined : () => archiveCategory(category.name)}
+              >
+                {category.name}
+              </Chip>
+            ))}
+          </View>
+        </Card.Content>
+      </Card>
+
       <SectionTitle title="Session" />
       <Card mode="contained" style={styles.card}>
         <List.Item
@@ -122,5 +177,18 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16
+  },
+  categoryInputRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  categoryInput: {
+    flex: 1
+  },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
   }
 });

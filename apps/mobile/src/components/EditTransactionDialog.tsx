@@ -4,10 +4,11 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Button, Checkbox, Chip, Dialog, HelperText, Portal, Text, TextInput } from "react-native-paper";
 import { z } from "zod";
 
-import { categoryOptions, transactionTypeOptions } from "../data/categories";
+import { transactionTypeOptions } from "../data/categories";
 import type { Transaction, TransactionType } from "../data/types";
 import { type UpdateTransactionInput, useFinance } from "../state/FinanceContext";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
+import { formatSignedMoney } from "../utils/money";
 
 type EditTransactionDialogProps = {
   transaction: Transaction | null;
@@ -22,13 +23,40 @@ const editTransactionSchema = z.object({
   type: z.enum(["expense", "income", "transfer", "loan_payment", "mortgage_payment", "fee", "refund"]),
   notes: z.string(),
   isRecurring: z.boolean(),
-  isExcludedFromReports: z.boolean()
+  isExcludedFromReports: z.boolean(),
+  transferMatchId: z.string().nullable()
 });
 
 type EditTransactionForm = z.input<typeof editTransactionSchema>;
 
 export function EditTransactionDialog({ transaction, visible, onDismiss }: EditTransactionDialogProps) {
-  const { archiveTransaction, updateTransaction } = useFinance();
+  const { accounts, archiveTransaction, categories, transactions, updateTransaction } = useFinance();
+  const accountNamesById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account.name])),
+    [accounts]
+  );
+  const transferCandidates = useMemo(() => {
+    if (!transaction) {
+      return [];
+    }
+
+    return transactions
+      .filter(
+        (candidate) =>
+          candidate.id !== transaction.id &&
+          candidate.accountId !== transaction.accountId &&
+          (!candidate.transferMatchId || candidate.transferMatchId === transaction.id) &&
+          Math.sign(candidate.amount) !== Math.sign(transaction.amount)
+      )
+      .sort((left, right) => {
+        const leftDateDistance = Math.abs(Date.parse(left.postedAt) - Date.parse(transaction.postedAt));
+        const rightDateDistance = Math.abs(Date.parse(right.postedAt) - Date.parse(transaction.postedAt));
+        const leftAmountDistance = Math.abs(Math.abs(left.baseCurrencyAmount) - Math.abs(transaction.baseCurrencyAmount));
+        const rightAmountDistance = Math.abs(Math.abs(right.baseCurrencyAmount) - Math.abs(transaction.baseCurrencyAmount));
+        return leftDateDistance - rightDateDistance || leftAmountDistance - rightAmountDistance;
+      })
+      .slice(0, 6);
+  }, [transaction, transactions]);
   const defaultValues = useMemo<EditTransactionForm>(
     () => ({
       merchant: transaction?.merchant ?? "",
@@ -37,7 +65,8 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
       type: transaction?.type ?? "expense",
       notes: transaction?.notes ?? "",
       isRecurring: transaction?.isRecurring ?? false,
-      isExcludedFromReports: transaction?.isExcludedFromReports ?? false
+      isExcludedFromReports: transaction?.isExcludedFromReports ?? false,
+      transferMatchId: transaction?.transferMatchId ?? null
     }),
     [transaction]
   );
@@ -60,7 +89,8 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
         description: parsed.description,
         notes: parsed.notes.trim().length > 0 ? parsed.notes.trim() : undefined,
         isRecurring: parsed.isRecurring,
-        isExcludedFromReports: parsed.isExcludedFromReports
+        isExcludedFromReports: parsed.transferMatchId ? true : parsed.isExcludedFromReports,
+        transferMatchId: parsed.transferMatchId
       };
       await updateTransaction(input);
       onDismiss();
@@ -134,9 +164,14 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
             <form.Field name="category">
               {(field) => (
                 <View style={styles.chipGrid}>
-                  {categoryOptions.map((option) => (
-                    <Chip key={option} selected={field.state.value === option} onPress={() => field.handleChange(option)} compact>
-                      {option}
+                  {categories.map((category) => (
+                    <Chip
+                      key={category.id}
+                      selected={field.state.value === category.name}
+                      onPress={() => field.handleChange(category.name)}
+                      compact
+                    >
+                      {category.name}
                     </Chip>
                   ))}
                 </View>
@@ -152,6 +187,27 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
                   mode="outlined"
                   multiline
                 />
+              )}
+            </form.Field>
+            <Text variant="labelLarge">Transfer match</Text>
+            <form.Field name="transferMatchId">
+              {(field) => (
+                <View style={styles.chipGrid}>
+                  <Chip selected={field.state.value === null} onPress={() => field.handleChange(null)} compact>
+                    No match
+                  </Chip>
+                  {transferCandidates.map((candidate) => (
+                    <Chip
+                      key={candidate.id}
+                      selected={field.state.value === candidate.id}
+                      onPress={() => field.handleChange(candidate.id)}
+                      compact
+                      icon="swap-horizontal"
+                    >
+                      {formatTransferCandidateLabel(candidate, accountNamesById)}
+                    </Chip>
+                  ))}
+                </View>
               )}
             </form.Field>
             <form.Field name="isRecurring">
@@ -210,6 +266,12 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
       </Dialog>
     </Portal>
   );
+}
+
+function formatTransferCandidateLabel(candidate: Transaction, accountNamesById: Map<string, string>) {
+  const accountName = accountNamesById.get(candidate.accountId) ?? "Account";
+  const shortAccountName = accountName.length > 18 ? `${accountName.slice(0, 17)}...` : accountName;
+  return `${shortAccountName} . ${formatSignedMoney(candidate.amount, candidate.currency)} . ${candidate.postedAt.slice(5)}`;
 }
 
 const styles = StyleSheet.create({

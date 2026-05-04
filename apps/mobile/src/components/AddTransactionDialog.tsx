@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo } from "react";
 import { useForm } from "@tanstack/react-form";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { Button, Checkbox, Dialog, HelperText, Portal, SegmentedButtons, Text, TextInput } from "react-native-paper";
+import { Button, Checkbox, Chip, Dialog, HelperText, Portal, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import { z } from "zod";
 
-import { categoryOptions, transactionTypeOptions } from "../data/categories";
+import { transactionTypeOptions } from "../data/categories";
 import type { TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
@@ -32,7 +32,7 @@ const addTransactionSchema = z.object({
 type AddTransactionForm = z.input<typeof addTransactionSchema>;
 
 export function AddTransactionDialog({ visible, onDismiss }: AddTransactionDialogProps) {
-  const { accounts, addTransaction } = useFinance();
+  const { accounts, addTransaction, categories } = useFinance();
   const accountButtons = useMemo(
     () =>
       accounts.slice(0, 4).map((account) => ({
@@ -169,11 +169,18 @@ export function AddTransactionDialog({ visible, onDismiss }: AddTransactionDialo
             </form.Field>
             <form.Field name="category">
               {(field) => (
-                <SegmentedButtons
-                  value={field.state.value}
-                  onValueChange={field.handleChange}
-                  buttons={categoryOptions.slice(0, 4).map((value) => ({ label: value, value }))}
-                />
+                <View style={styles.chipGrid}>
+                  {categories.map((category) => (
+                    <Chip
+                      key={category.id}
+                      selected={field.state.value === category.name}
+                      onPress={() => field.handleChange(category.name)}
+                      compact
+                    >
+                      {category.name}
+                    </Chip>
+                  ))}
+                </View>
               )}
             </form.Field>
             <form.Field name="isRecurring">
@@ -211,6 +218,11 @@ const styles = StyleSheet.create({
   content: {
     gap: 14,
     paddingVertical: 16
+  },
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
   },
   checkRow: {
     alignItems: "center",

@@ -86,9 +86,11 @@ export default defineSchema({
     description: v.string(),
     merchant: v.optional(v.string()),
     categoryId: v.optional(v.string()),
+    importBatchId: v.optional(v.id("importBatches")),
     type: transactionType,
     isRecurring: v.boolean(),
     isExcludedFromReports: v.boolean(),
+    transferMatchId: v.optional(v.id("transactions")),
     dedupeHash: v.string(),
     notes: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
@@ -97,7 +99,33 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_account_id", ["accountId"])
+    .index("by_import_batch_id", ["importBatchId"])
     .index("by_dedupe_hash", ["dedupeHash"]),
+
+  importBatches: defineTable({
+    userId: v.id("users"),
+    accountId: v.id("accounts"),
+    source: v.literal("csv"),
+    status: v.union(v.literal("completed"), v.literal("reverted")),
+    sourceName: v.optional(v.string()),
+    rowCount: v.number(),
+    importedCount: v.number(),
+    skippedCount: v.number(),
+    columnMapping: v.record(v.string(), v.string()),
+    dateFormat: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_account_id", ["accountId"]),
+
+  categories: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  }).index("by_user_id", ["userId"]),
 
   liabilities: defineTable({
     userId: v.id("users"),

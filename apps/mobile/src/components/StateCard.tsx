@@ -6,15 +6,29 @@ type StateCardProps = {
   title: string;
   detail: string;
   loading?: boolean;
-  tone?: "default" | "error";
+  tone?: "default" | "error" | "warning";
 };
 
 export function StateCard({ title, detail, loading = false, tone = "default" }: StateCardProps) {
   return (
-    <Card mode="contained" style={[styles.card, tone === "error" ? styles.errorCard : null]}>
+    <Card
+      mode="contained"
+      style={[
+        styles.card,
+        tone === "error" ? styles.errorCard : null,
+        tone === "warning" ? styles.warningCard : null
+      ]}
+    >
       <Card.Content style={styles.content}>
         {loading ? <ActivityIndicator /> : null}
-        <Text variant="titleSmall" style={tone === "error" ? styles.errorTitle : styles.title}>
+        <Text
+          variant="titleSmall"
+          style={[
+            styles.title,
+            tone === "error" ? styles.errorTitle : null,
+            tone === "warning" ? styles.warningTitle : null
+          ]}
+        >
           {title}
         </Text>
         <Text variant="bodySmall" style={styles.detail}>
@@ -44,6 +58,13 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: "#BA1A1A",
+    textAlign: "center"
+  },
+  warningCard: {
+    backgroundColor: "#FFF7E8"
+  },
+  warningTitle: {
+    color: "#8A3A24",
     fontWeight: "700",
     textAlign: "center"
   },

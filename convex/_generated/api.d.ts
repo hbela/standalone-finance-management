@@ -10,6 +10,8 @@
 
 import type * as accounts from "../accounts.js";
 import type * as banks from "../banks.js";
+import type * as categories from "../categories.js";
+import type * as importBatches from "../importBatches.js";
 import type * as liabilities from "../liabilities.js";
 import type * as model from "../model.js";
 import type * as transactions from "../transactions.js";
@@ -24,6 +26,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   banks: typeof banks;
+  categories: typeof categories;
+  importBatches: typeof importBatches;
   liabilities: typeof liabilities;
   model: typeof model;
   transactions: typeof transactions;

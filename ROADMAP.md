@@ -28,15 +28,17 @@ Suggested acceptance check:
 
 ## Phase 2: Data Quality And Reconciliation
 
+Status: complete.
+
 Goal: make imported and manually entered data trustworthy.
 
-- Improve CSV import mapping with a preview step, field mapping, date format detection, and account selection confirmation.
-- Store import batches so each CSV import can be reviewed, reverted, or audited later.
-- Strengthen deduplication beyond the current hash by checking date, amount, account, merchant, and description similarity.
-- Add manual transfer matching between accounts so internal moves do not inflate spending or income.
-- Add category management instead of free-form category strings.
-- Add recurring transaction detection and recurring payment review.
-- Add balance reconciliation: show when computed balance differs from account balance.
+- [x] Improve CSV import mapping with a preview step, field mapping, date format detection, and account selection confirmation.
+- [x] Store import batches so each CSV import can be reviewed or audited later.
+- [x] Strengthen deduplication beyond the current hash by checking date, amount, account, merchant, and description similarity.
+- [x] Add manual transfer matching between accounts so internal moves do not inflate spending or income.
+- [x] Add category management instead of free-form category strings.
+- [x] Add recurring transaction detection and recurring payment review.
+- [x] Add balance reconciliation: show when computed balance differs from account balance.
 
 Suggested acceptance check:
 
