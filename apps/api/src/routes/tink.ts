@@ -717,3 +717,13 @@ function normalizeText(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+export const tinkRouteInternals = {
+  createProviderDedupeHash,
+  normalizeAccountType,
+  normalizeCurrency,
+  normalizeTinkAccounts,
+  normalizeTinkTransactions,
+  normalizeTransactionType,
+  parseTinkDate
+};
