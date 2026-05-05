@@ -21,7 +21,7 @@ npm run start:api
 
 The API listens on `http://localhost:4000` and exposes `GET /health`.
 
-Copy `apps/api/.env.example` to `apps/api/.env` and fill in the Clerk, Convex, and Wise values before testing protected routes.
+Set the Clerk, Convex, Wise, and Tink values in the repo-root `.env.local`. The API loads env files in this order, with the first occurrence of each key winning: `apps/api/.env.local` → `apps/api/.env` → `<repo-root>/.env.local` → `<repo-root>/.env`.
 
 For the Expo app, keep client-safe values in the root `.env.local` with the `EXPO_PUBLIC_` prefix. Set `EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true` to use Clerk and Convex instead of local demo state:
 

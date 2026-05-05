@@ -233,6 +233,23 @@ scenario("parses Tink amount and date variants used by sandbox payloads", () => 
   assert.equal(parseTinkAmountValue({ amount: { value: "42.5" } }), 42.5);
   assert.equal(parseTinkAmountValue("not-a-number"), null);
 
+  assert.equal(
+    parseTinkAmountValue({ amount: { value: { unscaledValue: "1234", scale: "2" } } }),
+    12.34
+  );
+  assert.equal(
+    parseTinkAmountValue({ value: { unscaledValue: -50000, scale: 2 } }),
+    -500
+  );
+  assert.equal(
+    parseTinkAmountValue({ amount: { value: { unscaledValue: "1234", scale: "0" } } }),
+    1234
+  );
+  assert.equal(
+    parseTinkAmountValue({ amount: { value: { unscaledValue: "abc", scale: "2" } } }),
+    null
+  );
+
   assert.equal(parseTinkDate("2026-05-04"), Date.parse("2026-05-04"));
   assert.equal(parseTinkDate("not-a-date"), null);
 
@@ -240,6 +257,36 @@ scenario("parses Tink amount and date variants used by sandbox payloads", () => 
   assert.equal(normalizeTransactionType(10, "refund"), "refund");
   assert.equal(normalizeTransactionType(-10, "groceries"), "expense");
   assert.equal(normalizeTransactionType(10, "salary"), "income");
+});
+
+scenario("normalizes a sandbox transaction using the scaled-decimal amount shape", () => {
+  const result = normalizeTinkTransactions([
+    {
+      id: "tx-scaled-gbp",
+      accountId: "acc-gbp-main",
+      amount: {
+        value: {
+          unscaledValue: "-2599",
+          scale: "2"
+        },
+        currencyCode: "GBP"
+      },
+      descriptions: {
+        display: "Tesco"
+      },
+      dates: {
+        booked: "2026-05-04"
+      },
+      status: "BOOKED"
+    }
+  ]);
+
+  assert.equal(result.skippedCount, 0);
+  assert.equal(result.transactions.length, 1);
+  const tx = result.transactions[0];
+  assert.equal(tx.amount, -25.99);
+  assert.equal(tx.currency, "GBP");
+  assert.equal(tx.type, "expense");
 });
 
 for (const testScenario of scenarios) {

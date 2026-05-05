@@ -7,9 +7,9 @@ export function sendUnauthorized(reply: FastifyReply) {
   });
 }
 
-export function sendNotConfigured(reply: FastifyReply, service: string) {
+export function sendNotConfigured(reply: FastifyReply, service: string, detail?: string) {
   return reply.code(503).send({
     error: "not_configured",
-    message: `${service} is not configured yet.`
+    message: detail ? `${service} is not configured yet. ${detail}` : `${service} is not configured yet.`
   });
 }

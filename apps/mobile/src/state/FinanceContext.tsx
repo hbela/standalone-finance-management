@@ -413,6 +413,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
         id: account._id,
         source: account.source,
         bankId: account.bankKey,
+        providerAccountId: account.providerAccountId,
         name: account.name,
         currency: account.currency,
         type: account.type,

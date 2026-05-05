@@ -13,6 +13,7 @@ export type Account = {
   id: string;
   source: "local_bank" | "wise" | "manual";
   bankId?: string;
+  providerAccountId?: string;
   name: string;
   currency: Currency;
   type: "checking" | "savings" | "credit" | "loan" | "mortgage" | "wise_balance" | "cash";

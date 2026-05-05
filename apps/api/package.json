@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build -w @wise-finance/shared && tsx watch src/index.ts",
+    "dev": "npm run build -w @wise-finance/shared && tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "npm run build && node test/tink-normalization.test.mjs",

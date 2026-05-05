@@ -8,7 +8,7 @@ const currencyCode = v.union(
   v.literal("GBP")
 );
 
-const countryCode = v.union(v.literal("HU"), v.literal("FR"));
+const countryCode = v.union(v.literal("HU"), v.literal("FR"), v.literal("GB"));
 
 const accountSource = v.union(
   v.literal("local_bank"),

@@ -3,7 +3,7 @@ import { StyleSheet, View } from "react-native";
 import { BottomNavigation, IconButton, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import type { AppTab } from "../../App";
+import type { AppTab, BankConnectionReturn } from "../../App";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { DebtsScreen } from "../screens/DebtsScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
@@ -12,6 +12,8 @@ import { TransactionsScreen } from "../screens/TransactionsScreen";
 
 type ShellProps = {
   activeTab: AppTab;
+  bankConnectionReturn?: BankConnectionReturn | null;
+  onBankConnectionReturnHandled?: () => void;
   onTabChange: (tab: AppTab) => void;
   onSignOut?: () => void;
 };
@@ -49,8 +51,14 @@ const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocused
   }
 ];
 
-export function Shell({ activeTab, onTabChange, onSignOut }: ShellProps) {
-  const renderScene = ({ route }: { route: { key: AppTab } }) => {
+export function Shell({
+  activeTab,
+  bankConnectionReturn,
+  onBankConnectionReturnHandled,
+  onTabChange,
+  onSignOut
+}: ShellProps) {
+  const renderScene = React.useCallback(({ route }: { route: { key: AppTab } }) => {
     switch (route.key) {
       case "dashboard":
         return <DashboardScreen />;
@@ -61,11 +69,17 @@ export function Shell({ activeTab, onTabChange, onSignOut }: ShellProps) {
       case "onboarding":
         return <OnboardingScreen />;
       case "settings":
-        return <SettingsScreen onSignOut={onSignOut} />;
+        return (
+          <SettingsScreen
+            bankConnectionReturn={bankConnectionReturn}
+            onBankConnectionReturnHandled={onBankConnectionReturnHandled}
+            onSignOut={onSignOut}
+          />
+        );
       default:
         return null;
     }
-  };
+  }, [bankConnectionReturn, onBankConnectionReturnHandled, onSignOut]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

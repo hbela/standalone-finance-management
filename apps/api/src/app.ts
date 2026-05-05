@@ -19,7 +19,10 @@ export async function buildApp() {
   });
 
   if (config.clerkPublishableKey && config.clerkSecretKey) {
-    await app.register(clerkPlugin);
+    await app.register(clerkPlugin, {
+      publishableKey: config.clerkPublishableKey,
+      secretKey: config.clerkSecretKey
+    });
   }
 
   await registerHealthRoutes(app);

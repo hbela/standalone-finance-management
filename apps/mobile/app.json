@@ -2,6 +2,7 @@
   "expo": {
     "name": "Wise Finance",
     "slug": "wise-finance-management",
+    "scheme": "wise-finance",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",

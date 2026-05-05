@@ -49,12 +49,38 @@ export type TinkTransaction = {
   status?: string;
 };
 
+export type TinkCredential = {
+  id?: string;
+  providerName?: string;
+  status?: string;
+  statusUpdated?: string;
+  statusPayload?: string;
+};
+
+type TinkClientTokenResponse = {
+  access_token: string;
+};
+
+type TinkUserResponse = {
+  user_id: string;
+  external_user_id?: string;
+};
+
+type TinkAuthorizationResponse = {
+  code: string;
+};
+
+type TinkScaledValue = {
+  unscaledValue?: string | number;
+  scale?: string | number;
+};
+
 type TinkAmount = {
   amount?: {
-    value?: string | number;
+    value?: string | number | TinkScaledValue;
     currencyCode?: string;
   };
-  value?: string | number;
+  value?: string | number | TinkScaledValue;
   currencyCode?: string;
 };
 
@@ -93,6 +119,91 @@ export async function exchangeTinkAuthorizationCode(code: string) {
 
   if (!isTinkTokenResponse(payload)) {
     throw new Error("Tink token exchange returned an invalid response");
+  }
+
+  return payload;
+}
+
+export async function createTinkUser(input: {
+  externalUserId: string;
+  market: string;
+  locale: string;
+}) {
+  const accessToken = await getTinkClientAccessToken("user:create");
+  const response = await fetch(`${config.tinkApiBaseUrl}/api/v1/user/create`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      external_user_id: input.externalUserId,
+      market: input.market,
+      locale: input.locale
+    })
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(getTinkErrorMessage(payload, `Tink user creation failed with ${response.status}`));
+  }
+
+  if (!isTinkUserResponse(payload)) {
+    throw new Error("Tink user creation returned an invalid response");
+  }
+
+  return payload;
+}
+
+export async function createTinkAuthorization(input: {
+  userId: string;
+  scopes: string[];
+  idHint?: string;
+  delegateToClient?: boolean;
+}) {
+  const accessToken = await getTinkClientAccessToken("authorization:grant");
+  const body = new URLSearchParams({
+    user_id: input.userId,
+    scope: input.scopes.join(",")
+  });
+
+  if (input.idHint) {
+    body.set("id_hint", input.idHint);
+  }
+
+  const path = input.delegateToClient
+    ? "/api/v1/oauth/authorization-grant/delegate"
+    : "/api/v1/oauth/authorization-grant";
+
+  if (input.delegateToClient) {
+    if (!config.tinkClientId) {
+      throw new Error("Tink is not configured");
+    }
+
+    body.set("actor_client_id", config.tinkClientId);
+    body.set("response_type", "code");
+  }
+
+  const response = await fetch(`${config.tinkApiBaseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(getTinkErrorMessage(payload, `Tink authorization grant failed with ${response.status}`));
+  }
+
+  if (!isTinkAuthorizationResponse(payload)) {
+    throw new Error("Tink authorization grant returned an invalid response");
   }
 
   return payload;
@@ -162,6 +273,33 @@ export async function listTinkTransactions(accessToken: string, params: { from?:
   return payload.transactions;
 }
 
+export async function listTinkCredentials(accessToken: string) {
+  const response = await fetch(`${config.tinkApiBaseUrl}/api/v1/credentials`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "errorMessage" in payload
+        ? String(payload.errorMessage)
+        : `Tink credentials check failed with ${response.status}`;
+
+    throw new Error(message);
+  }
+
+  if (!isTinkCredentialsResponse(payload)) {
+    throw new Error("Tink credentials returned an invalid response");
+  }
+
+  return payload.credentials;
+}
+
 export function parseTinkAmountValue(value: TinkAmount | string | number | undefined) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -173,9 +311,89 @@ export function parseTinkAmountValue(value: TinkAmount | string | number | undef
   }
 
   const raw = value?.amount?.value ?? value?.value;
-  const parsed = typeof raw === "number" ? raw : Number(raw);
+  return parseScalarOrScaled(raw);
+}
 
-  return Number.isFinite(parsed) ? parsed : null;
+function parseScalarOrScaled(raw: string | number | TinkScaledValue | undefined) {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) ? raw : null;
+  }
+
+  if (typeof raw === "string") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const unscaled =
+    typeof raw.unscaledValue === "number" ? raw.unscaledValue : Number(raw.unscaledValue);
+  const scale = typeof raw.scale === "number" ? raw.scale : Number(raw.scale);
+
+  if (!Number.isFinite(unscaled) || !Number.isFinite(scale)) {
+    return null;
+  }
+
+  return unscaled / Math.pow(10, scale);
+}
+
+async function getTinkClientAccessToken(scope: string) {
+  if (!config.tinkClientId || !config.tinkClientSecret) {
+    throw new Error("Tink is not configured");
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: config.tinkClientId,
+    client_secret: config.tinkClientSecret,
+    scope
+  });
+
+  const response = await fetch(`${config.tinkApiBaseUrl}/api/v1/oauth/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(getTinkErrorMessage(payload, `Tink client token failed with ${response.status}`));
+  }
+
+  if (!isTinkClientTokenResponse(payload)) {
+    throw new Error("Tink client token returned an invalid response");
+  }
+
+  return payload.access_token;
+}
+
+function getTinkErrorMessage(payload: unknown, fallback: string) {
+  if (payload && typeof payload === "object") {
+    if ("error_description" in payload) {
+      return String(payload.error_description);
+    }
+
+    if ("errorMessage" in payload) {
+      return String(payload.errorMessage);
+    }
+  }
+
+  return fallback;
+}
+
+function isTinkClientTokenResponse(payload: unknown): payload is TinkClientTokenResponse {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "access_token" in payload &&
+    typeof payload.access_token === "string"
+  );
 }
 
 function isTinkTokenResponse(payload: unknown): payload is TinkTokenResponse {
@@ -184,6 +402,24 @@ function isTinkTokenResponse(payload: unknown): payload is TinkTokenResponse {
     payload !== null &&
     "access_token" in payload &&
     typeof payload.access_token === "string"
+  );
+}
+
+function isTinkUserResponse(payload: unknown): payload is TinkUserResponse {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "user_id" in payload &&
+    typeof payload.user_id === "string"
+  );
+}
+
+function isTinkAuthorizationResponse(payload: unknown): payload is TinkAuthorizationResponse {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "code" in payload &&
+    typeof payload.code === "string"
   );
 }
 
@@ -202,5 +438,14 @@ function isTinkTransactionsResponse(payload: unknown): payload is { transactions
     payload !== null &&
     "transactions" in payload &&
     Array.isArray(payload.transactions)
+  );
+}
+
+function isTinkCredentialsResponse(payload: unknown): payload is { credentials: TinkCredential[] } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "credentials" in payload &&
+    Array.isArray(payload.credentials)
   );
 }

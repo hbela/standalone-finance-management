@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 
 import { requireUserId } from "../auth.js";
 import { config } from "../config.js";
@@ -6,7 +6,10 @@ import { convexApi, getConvexClient } from "../convexClient.js";
 import { sendNotConfigured } from "../errors.js";
 import { createTinkState, hashOAuthState, verifyTinkState } from "../oauthState.js";
 import {
+  createTinkAuthorization,
+  createTinkUser,
   exchangeTinkAuthorizationCode,
+  listTinkCredentials,
   listTinkAccounts,
   listTinkTransactions,
   parseTinkAmountValue,
@@ -23,14 +26,30 @@ type ConvexProviderConnection = {
   status: string;
   scopes?: string[];
   tokenRef?: string;
+  externalUserId?: string;
   lastSyncedAt?: number;
   lastSyncStatus?: string;
   lastError?: string;
   updatedAt?: number;
 };
 
+const tinkLinkConnectMoreAccountsBaseUrl =
+  "https://link.tink.com/1.0/transactions/connect-more-accounts";
+
 export async function registerTinkRoutes(app: FastifyInstance) {
   app.get("/integrations/tink/status", async (request, reply) => {
+    request.log.info(
+      {
+        origin: request.headers.origin,
+        referer: request.headers.referer,
+        secFetchDest: request.headers["sec-fetch-dest"],
+        secFetchMode: request.headers["sec-fetch-mode"],
+        secFetchSite: request.headers["sec-fetch-site"],
+        userAgent: request.headers["user-agent"]
+      },
+      "tink status caller"
+    );
+
     const userId = requireUserId(request, reply);
 
     if (!userId) {
@@ -38,7 +57,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     if (!config.apiServiceSecret) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(reply, "Tink", getMissingEnvDetail(["API_SERVICE_SECRET"]));
     }
 
     const convex = getConvexClient();
@@ -76,11 +95,22 @@ export async function registerTinkRoutes(app: FastifyInstance) {
 
     if (
       !config.tinkClientId ||
+      !config.tinkClientSecret ||
       !config.tinkRedirectUri ||
       !config.oauthStateSecret ||
       !config.apiServiceSecret
     ) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(
+        reply,
+        "Tink",
+        getMissingEnvDetail([
+          "TINK_CLIENT_ID",
+          "TINK_CLIENT_SECRET",
+          "TINK_REDIRECT_URI",
+          "OAUTH_STATE_SECRET",
+          "API_SERVICE_SECRET"
+        ])
+      );
     }
 
     const convex = getConvexClient();
@@ -88,27 +118,156 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       return sendNotConfigured(reply, "Convex");
     }
 
-    const state = createTinkState(config.oauthStateSecret);
+    const existingConnection = (await convex.query(
+      convexApi.providerConnections.apiGetConnectionForUser,
+      {
+        apiSecret: config.apiServiceSecret,
+        clerkUserId: userId,
+        provider: "tink"
+      }
+    )) as ConvexProviderConnection | null;
+
+    request.log.info(
+      {
+        provider: "tink",
+        market: config.tinkMarket,
+        locale: config.tinkLocale,
+        testMode: config.tinkTestMode,
+        linkBaseUrl: config.tinkLinkBaseUrl,
+        redirectUri: config.tinkRedirectUri,
+        inputProvider: config.tinkInputProvider,
+        hasInputUsername: Boolean(config.tinkInputUsername),
+        useInputPrefill: config.tinkUseInputPrefill,
+        useExistingUser: config.tinkUseExistingUser,
+        linkAuthMode: config.tinkLinkAuthMode,
+        dataScopes: config.tinkScopes,
+        hasStoredTinkUserId: Boolean(existingConnection?.externalUserId)
+      },
+      "tink link start"
+    );
+
+    let tinkUserId: string | undefined;
+    let linkAuthorizationCode: string | undefined;
+    const hasExistingCredentials = Boolean(existingConnection?.tokenRef);
+
+    if (config.tinkUseExistingUser) {
+      tinkUserId = existingConnection?.externalUserId;
+
+      if (!tinkUserId) {
+        const externalUserId = `wise-finance:${userId}`;
+        const tinkUser = await createTinkUser({
+          externalUserId,
+          market: config.tinkMarket,
+          locale: config.tinkLocale
+        });
+
+        tinkUserId = tinkUser.user_id;
+
+        request.log.info(
+          {
+            provider: "tink",
+            tinkUserId,
+            externalUserIdSuffix: externalUserId.slice(-12)
+          },
+          "tink link user created"
+        );
+      } else {
+        request.log.info(
+          { provider: "tink", tinkUserId, hasExistingCredentials },
+          "tink link reusing stored user"
+        );
+      }
+
+      if (hasExistingCredentials) {
+        const linkAuthorization = await createTinkAuthorization({
+          userId: tinkUserId,
+          scopes: config.tinkScopes,
+          idHint: `wise-finance:${userId.slice(-12)}`,
+          delegateToClient: true
+        });
+
+        linkAuthorizationCode = linkAuthorization.code;
+
+        request.log.info(
+          {
+            provider: "tink",
+            tinkUserId,
+            hasAuthorizationCode: Boolean(linkAuthorizationCode),
+            authorizationCodeLength: linkAuthorizationCode.length,
+            linkAuthMode: config.tinkLinkAuthMode
+          },
+          "tink link authorization granted"
+        );
+      }
+    }
+
+    const state = createTinkState(config.oauthStateSecret, { tinkUserId });
+    const stateHash = hashOAuthState(state);
     await convex.mutation(convexApi.providerConnections.apiRecordConnectionStarted, {
       apiSecret: config.apiServiceSecret,
       clerkUserId: userId,
       provider: "tink",
       country: config.tinkMarket,
       scopes: config.tinkScopes,
-      stateHash: hashOAuthState(state)
+      stateHash,
+      externalUserId: tinkUserId
     });
 
-    const url = new URL(config.tinkLinkBaseUrl);
-    url.searchParams.set("response_type", "code");
+    const linkBaseUrl = linkAuthorizationCode
+      ? tinkLinkConnectMoreAccountsBaseUrl
+      : config.tinkLinkBaseUrl;
+    const url = new URL(linkBaseUrl);
     url.searchParams.set("client_id", config.tinkClientId);
     url.searchParams.set("redirect_uri", config.tinkRedirectUri);
     url.searchParams.set("market", config.tinkMarket);
-    url.searchParams.set("scope", config.tinkScopes.join(","));
+    url.searchParams.set("locale", config.tinkLocale);
     url.searchParams.set("state", state);
+    if (linkAuthorizationCode && config.tinkLinkAuthMode === "token") {
+      const linkTokenResponse = await exchangeTinkAuthorizationCode(linkAuthorizationCode);
+      url.searchParams.set("authorization_token", linkTokenResponse.access_token);
+      request.log.info(
+        {
+          provider: "tink",
+          tinkUserId,
+          hasAuthorizationToken: Boolean(linkTokenResponse.access_token),
+          authorizationTokenLength: linkTokenResponse.access_token.length,
+          authorizationTokenScopes: linkTokenResponse.scope
+            ? linkTokenResponse.scope.split(/[,\s]+/).filter(Boolean)
+            : undefined
+        },
+        "tink link authorization token exchanged"
+      );
+    } else if (linkAuthorizationCode) {
+      url.searchParams.set("authorization_code", linkAuthorizationCode);
+    } else {
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("scope", config.tinkScopes.join(","));
+    }
+    if (config.tinkTestMode) {
+      url.searchParams.set("test", "true");
+    }
+    if (config.tinkUseInputPrefill && config.tinkInputProvider) {
+      url.searchParams.set("input_provider", config.tinkInputProvider);
+    }
+    if (config.tinkUseInputPrefill && config.tinkInputUsername) {
+      url.searchParams.set("input_username", config.tinkInputUsername);
+    }
+
+    request.log.info(
+      {
+        provider: "tink",
+        stateHash,
+        tinkUserId,
+        linkUrl: sanitizeTinkLinkUrl(url),
+        linkUrlParams: getSanitizedTinkLinkParams(url)
+      },
+      "tink link url built"
+    );
 
     return {
       provider: "tink",
       market: config.tinkMarket,
+      locale: config.tinkLocale,
       scopes: config.tinkScopes,
       url: url.toString()
     };
@@ -117,6 +276,8 @@ export async function registerTinkRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: {
       code?: string;
+      credentialsId?: string;
+      credentials_id?: string;
       error?: string;
       error_description?: string;
       state?: string;
@@ -128,7 +289,11 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       !config.tinkClientSecret ||
       !config.tokenEncryptionKey
     ) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(
+        reply,
+        "Tink",
+        getMissingEnvDetail(["OAUTH_STATE_SECRET", "API_SERVICE_SECRET", "TINK_CLIENT_SECRET", "TOKEN_ENCRYPTION_KEY"])
+      );
     }
 
     const convex = getConvexClient();
@@ -141,6 +306,18 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     let stateHash: string | null = null;
 
     try {
+      request.log.info(
+        {
+          provider: "tink",
+          queryKeys: Object.keys(request.query),
+          hasCode: Boolean(request.query.code),
+          hasCredentialsId: Boolean(request.query.credentialsId ?? request.query.credentials_id),
+          error: request.query.error,
+          errorDescription: request.query.error_description
+        },
+        "tink callback received"
+      );
+
       if (!request.query.state) {
         throw new Error("Missing OAuth state");
       }
@@ -148,6 +325,16 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       const state = verifyTinkState(request.query.state, config.oauthStateSecret);
       stateHash = hashOAuthState(request.query.state);
       redirectUrl.searchParams.set("provider", state.provider);
+
+      request.log.info(
+        {
+          provider: "tink",
+          stateHash,
+          tinkUserId: state.tinkUserId,
+          callbackProvidedCode: Boolean(request.query.code)
+        },
+        "tink callback state verified"
+      );
 
       if (request.query.error) {
         await convex.mutation(convexApi.providerConnections.apiMarkConnectionFailed, {
@@ -166,11 +353,31 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         return reply.redirect(redirectUrl.toString());
       }
 
-      if (!request.query.code) {
+      const authorizationCode = state.tinkUserId
+        ? (
+            await createTinkAuthorization({
+              userId: state.tinkUserId,
+              scopes: config.tinkScopes
+            })
+          ).code
+        : request.query.code;
+
+      if (!authorizationCode) {
         throw new Error("Missing authorization code");
       }
 
-      const tokenResponse = await exchangeTinkAuthorizationCode(request.query.code);
+      request.log.info(
+        {
+          provider: "tink",
+          stateHash,
+          usedStateTinkUser: Boolean(state.tinkUserId),
+          authorizationCodeLength: authorizationCode.length
+        },
+        "tink callback data authorization ready"
+      );
+
+      const tokenResponse = await exchangeTinkAuthorizationCode(authorizationCode);
+      const credentialId = request.query.credentialsId ?? request.query.credentials_id;
       const expiresAt = tokenResponse.expires_in
         ? Date.now() + tokenResponse.expires_in * 1000
         : undefined;
@@ -185,8 +392,20 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         scope: tokenResponse.scope,
         expiresAt,
         externalUserId: tokenResponse.user_id,
+        externalCredentialId: credentialId,
         receivedAt: Date.now()
       });
+
+      request.log.info(
+        {
+          provider: "tink",
+          credentialId,
+          scopes,
+          hasRefreshToken: Boolean(tokenResponse.refresh_token),
+          externalUserId: tokenResponse.user_id
+        },
+        "tink callback token stored"
+      );
 
       await convex.mutation(convexApi.providerConnections.apiMarkConnectionCompleted, {
         apiSecret: config.apiServiceSecret,
@@ -202,6 +421,15 @@ export async function registerTinkRoutes(app: FastifyInstance) {
 
       return reply.redirect(redirectUrl.toString());
     } catch (error) {
+      request.log.error(
+        {
+          provider: "tink",
+          stateHash,
+          errorMessage: error instanceof Error ? error.message : "Invalid Tink callback"
+        },
+        "tink callback failed"
+      );
+
       if (stateHash) {
         await convex
           .mutation(convexApi.providerConnections.apiMarkConnectionFailed, {
@@ -233,7 +461,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     if (!config.apiServiceSecret || !config.tokenEncryptionKey) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(reply, "Tink", getMissingEnvDetail(["API_SERVICE_SECRET", "TOKEN_ENCRYPTION_KEY"]));
     }
 
     const convex = getConvexClient();
@@ -301,7 +529,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     if (!config.apiServiceSecret || !config.tokenEncryptionKey) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(reply, "Tink", getMissingEnvDetail(["API_SERVICE_SECRET", "TOKEN_ENCRYPTION_KEY"]));
     }
 
     const convex = getConvexClient();
@@ -327,6 +555,12 @@ export async function registerTinkRoutes(app: FastifyInstance) {
 
     try {
       const tokens = await readProviderTokens(connection.tokenRef);
+      const grantedScopes = tokens.scope?.split(/[,\s]+/).filter(Boolean) ?? [];
+      const credentialDiagnostics = await getTinkCredentialDiagnostics(
+        tokens.accessToken,
+        tokens.externalCredentialId,
+        request.log
+      );
       const tinkAccounts = await listTinkAccounts(tokens.accessToken);
       const accountSync = normalizeTinkAccounts(tinkAccounts);
       const accountResult = (await convex.mutation(
@@ -339,7 +573,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         }
       )) as { createdCount: number; updatedCount: number };
       const tinkTransactions = await listTinkTransactions(tokens.accessToken, {});
-      const transactionSync = normalizeTinkTransactions(tinkTransactions);
+      const transactionSync = normalizeTinkTransactions(tinkTransactions, request.log);
       const transactionResult = (await convex.mutation(
         convexApi.transactions.apiImportProviderTransactions,
         {
@@ -349,6 +583,32 @@ export async function registerTinkRoutes(app: FastifyInstance) {
           transactions: transactionSync.transactions
         }
       )) as { imported: number; skipped: number };
+
+      request.log.info(
+        {
+          provider: "tink",
+          token: {
+            grantedScopes,
+            hasCredentialsRead: grantedScopes.includes("credentials:read"),
+            hasUserRead: grantedScopes.includes("user:read"),
+            hasAccountsRead: grantedScopes.includes("accounts:read"),
+            hasTransactionsRead: grantedScopes.includes("transactions:read")
+          },
+          credential: credentialDiagnostics,
+          accounts: {
+            fetchedCount: tinkAccounts.length,
+            normalizedCount: accountSync.accounts.length,
+            skippedCount: accountSync.skippedCount
+          },
+          transactions: {
+            fetchedCount: tinkTransactions.length,
+            normalizedCount: transactionSync.transactions.length,
+            skippedCount: transactionSync.skippedCount,
+            skipReasons: transactionSync.skipReasons
+          }
+        },
+        "tink sync fetched data"
+      );
 
       return {
         provider: "tink",
@@ -397,7 +657,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     if (!config.apiServiceSecret || !config.tokenEncryptionKey) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(reply, "Tink", getMissingEnvDetail(["API_SERVICE_SECRET", "TOKEN_ENCRYPTION_KEY"]));
     }
 
     const convex = getConvexClient();
@@ -427,7 +687,10 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         from: request.body?.from,
         to: request.body?.to
       });
-      const { transactions, skippedCount } = normalizeTinkTransactions(tinkTransactions);
+      const { transactions, skippedCount } = normalizeTinkTransactions(
+        tinkTransactions,
+        request.log
+      );
       const result = (await convex.mutation(
         convexApi.transactions.apiImportProviderTransactions,
         {
@@ -472,7 +735,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     if (!config.apiServiceSecret) {
-      return sendNotConfigured(reply, "Tink");
+      return sendNotConfigured(reply, "Tink", getMissingEnvDetail(["API_SERVICE_SECRET"]));
     }
 
     const convex = getConvexClient();
@@ -506,6 +769,77 @@ function normalizeRedirectPath(pathname: string, nextPath: string) {
   }
 
   return pathname.endsWith("/") ? `${pathname}${nextPath}` : `${pathname}/${nextPath}`;
+}
+
+function sanitizeTinkLinkUrl(url: URL) {
+  const sanitized = new URL(url.toString());
+  for (const param of ["authorization_code", "authorization_token", "state", "client_id", "input_username"]) {
+    if (sanitized.searchParams.has(param)) {
+      sanitized.searchParams.set(param, "[redacted]");
+    }
+  }
+
+  return sanitized.toString();
+}
+
+function getSanitizedTinkLinkParams(url: URL) {
+  return {
+    clientIdSuffix: url.searchParams.get("client_id")?.slice(-8),
+    redirectUri: url.searchParams.get("redirect_uri"),
+    market: url.searchParams.get("market"),
+    locale: url.searchParams.get("locale"),
+    scope: url.searchParams.get("scope"),
+    stateLength: url.searchParams.get("state")?.length,
+    authorizationCodeLength: url.searchParams.get("authorization_code")?.length,
+    authorizationTokenLength: url.searchParams.get("authorization_token")?.length,
+    test: url.searchParams.get("test"),
+    inputProvider: url.searchParams.get("input_provider"),
+    hasInputUsername: url.searchParams.has("input_username"),
+    responseType: url.searchParams.get("response_type")
+  };
+}
+
+async function getTinkCredentialDiagnostics(
+  accessToken: string,
+  expectedCredentialId: string | undefined,
+  log: FastifyBaseLogger
+) {
+  try {
+    const credentials = await listTinkCredentials(accessToken);
+    const matchingCredential = expectedCredentialId
+      ? credentials.find((credential) => credential.id === expectedCredentialId)
+      : undefined;
+    const diagnosticCredentials = (matchingCredential ? [matchingCredential] : credentials).map(
+      (credential) => ({
+        id: credential.id,
+        providerName: credential.providerName,
+        status: credential.status,
+        statusUpdated: credential.statusUpdated,
+        statusPayload: credential.statusPayload
+      })
+    );
+
+    return {
+      expectedCredentialId,
+      count: credentials.length,
+      credentials: diagnosticCredentials
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Tink credential diagnostics failed";
+    log.warn(
+      {
+        provider: "tink",
+        expectedCredentialId,
+        errorMessage: message
+      },
+      "tink credential diagnostics failed"
+    );
+
+    return {
+      expectedCredentialId,
+      errorMessage: message
+    };
+  }
 }
 
 function normalizeTinkAccounts(accounts: TinkAccount[]) {
@@ -589,17 +923,20 @@ function slugify(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-function normalizeTinkTransactions(transactions: TinkTransaction[]) {
+function normalizeTinkTransactions(transactions: TinkTransaction[], log?: FastifyBaseLogger) {
   const normalized = [];
   let skippedCount = 0;
+  const skipReasons: Record<string, number> = {};
 
   for (const transaction of transactions) {
     const providerAccountId = transaction.accountId ?? transaction.account?.id;
     const amount = parseTinkAmountValue(transaction.amount);
-    const currency = normalizeCurrency(
+    const rawCurrency =
       transaction.currencyCode ??
-        (typeof transaction.amount === "object" ? transaction.amount?.amount?.currencyCode ?? transaction.amount?.currencyCode : undefined)
-    );
+      (typeof transaction.amount === "object"
+        ? transaction.amount?.amount?.currencyCode ?? transaction.amount?.currencyCode
+        : undefined);
+    const currency = normalizeCurrency(rawCurrency);
     const postedAt = parseTinkDate(
       transaction.dates?.booked ?? transaction.bookedDate ?? transaction.dates?.value
     );
@@ -609,15 +946,29 @@ function normalizeTinkTransactions(transactions: TinkTransaction[]) {
       transaction.reference ??
       "Tink transaction";
 
+    const skipReasonsForThis: string[] = [];
+    if (!transaction.id) skipReasonsForThis.push("missing_id");
+    if (!providerAccountId) skipReasonsForThis.push("missing_account_id");
+    if (amount === null) skipReasonsForThis.push("unparseable_amount");
+    if (!currency) skipReasonsForThis.push(`unsupported_currency:${rawCurrency ?? "none"}`);
+    if (postedAt === null) skipReasonsForThis.push("unparseable_date");
+    if (transaction.status?.toLowerCase() === "pending") skipReasonsForThis.push("status_pending");
+
+    if (skipReasonsForThis.length > 0) {
+      skippedCount += 1;
+      for (const reason of skipReasonsForThis) {
+        skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+      }
+      continue;
+    }
+
     if (
       !transaction.id ||
       !providerAccountId ||
       amount === null ||
       !currency ||
-      postedAt === null ||
-      transaction.status?.toLowerCase() === "pending"
+      postedAt === null
     ) {
-      skippedCount += 1;
       continue;
     }
 
@@ -648,7 +999,19 @@ function normalizeTinkTransactions(transactions: TinkTransaction[]) {
     });
   }
 
-  return { transactions: normalized, skippedCount };
+  if (log && skippedCount > 0) {
+    log.warn(
+      {
+        provider: "tink",
+        totalFetched: transactions.length,
+        skippedCount,
+        skipReasons
+      },
+      "tink transactions skipped during normalization"
+    );
+  }
+
+  return { transactions: normalized, skippedCount, skipReasons };
 }
 
 function parseTinkDate(value: string | undefined) {
@@ -727,3 +1090,27 @@ export const tinkRouteInternals = {
   normalizeTransactionType,
   parseTinkDate
 };
+
+function getMissingEnvDetail(envNames: string[]) {
+  const missing = envNames.filter((envName) => !getConfigValueForEnvName(envName));
+  return missing.length > 0 ? `Missing ${missing.join(" and ")}.` : undefined;
+}
+
+function getConfigValueForEnvName(envName: string) {
+  switch (envName) {
+    case "API_SERVICE_SECRET":
+      return config.apiServiceSecret;
+    case "OAUTH_STATE_SECRET":
+      return config.oauthStateSecret;
+    case "TINK_CLIENT_ID":
+      return config.tinkClientId;
+    case "TINK_CLIENT_SECRET":
+      return config.tinkClientSecret;
+    case "TINK_REDIRECT_URI":
+      return config.tinkRedirectUri;
+    case "TOKEN_ENCRYPTION_KEY":
+      return config.tokenEncryptionKey;
+    default:
+      return undefined;
+  }
+}

@@ -3,6 +3,7 @@ import { Linking, StyleSheet, View } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
+import type { BankConnectionReturn } from "../../App";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
@@ -10,6 +11,8 @@ import type { Currency } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 
 type SettingsScreenProps = {
+  bankConnectionReturn?: BankConnectionReturn | null;
+  onBankConnectionReturnHandled?: () => void;
   onSignOut?: () => void;
 };
 
@@ -20,7 +23,11 @@ const currencyButtons = [
   { label: "GBP", value: "GBP" }
 ];
 
-export function SettingsScreen({ onSignOut }: SettingsScreenProps) {
+export function SettingsScreen({
+  bankConnectionReturn,
+  onBankConnectionReturnHandled,
+  onSignOut
+}: SettingsScreenProps) {
   const { addCategory, archiveCategory, categories, clearError, error, isPersisted, settings, updateSettings } = useFinance();
   const [baseCurrency, setBaseCurrency] = useState<Currency>(settings.baseCurrency);
   const [locale, setLocale] = useState(settings.locale);
@@ -103,7 +110,14 @@ export function SettingsScreen({ onSignOut }: SettingsScreenProps) {
         </Card.Content>
       </Card>
 
-      {isPersisted ? <AuthenticatedBankConnectionSection /> : <LocalBankConnectionSection />}
+      {isPersisted ? (
+        <AuthenticatedBankConnectionSection
+          bankConnectionReturn={bankConnectionReturn}
+          onBankConnectionReturnHandled={onBankConnectionReturnHandled}
+        />
+      ) : (
+        <LocalBankConnectionSection />
+      )}
 
       <SectionTitle title="Categories" action={`${categories.length} active`} />
       <Card mode="contained" style={styles.card}>
@@ -173,9 +187,15 @@ export function SettingsScreen({ onSignOut }: SettingsScreenProps) {
   );
 }
 
-function AuthenticatedBankConnectionSection() {
+function AuthenticatedBankConnectionSection({
+  bankConnectionReturn,
+  onBankConnectionReturnHandled
+}: {
+  bankConnectionReturn?: BankConnectionReturn | null;
+  onBankConnectionReturnHandled?: () => void;
+}) {
   const { getToken } = useAuth();
-  const bankConnection = useBankConnection(getToken, true);
+  const bankConnection = useBankConnection(getToken, true, bankConnectionReturn, onBankConnectionReturnHandled);
 
   return (
     <>
@@ -249,7 +269,9 @@ function LocalBankConnectionSection() {
   );
 }
 
-type TinkStatus = {
+type BankAction = "connect" | "sync" | "refresh" | "disconnect" | null;
+
+type TinkStatusResponse = {
   connected: boolean;
   status: string;
   lastSyncedAt?: number;
@@ -257,19 +279,42 @@ type TinkStatus = {
   lastError?: string;
 };
 
-type BankAction = "connect" | "sync" | "refresh" | "disconnect" | null;
+type TinkSyncResponse = {
+  accounts: {
+    fetchedCount: number;
+    importedCount: number;
+    skippedCount: number;
+    createdCount: number;
+    updatedCount: number;
+  };
+  transactions: {
+    fetchedCount: number;
+    preparedCount: number;
+    skippedBeforeImportCount: number;
+    importedCount: number;
+    skippedDuringImportCount: number;
+  };
+};
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
 function useBankConnection(
   getToken: ReturnType<typeof useAuth>["getToken"],
-  isPersisted: boolean
+  isPersisted: boolean,
+  bankConnectionReturn?: BankConnectionReturn | null,
+  onBankConnectionReturnHandled?: () => void
 ) {
-  const [status, setStatus] = useState<TinkStatus | null>(null);
+  const [statusLabel, setStatusLabel] = useState("Ready");
+  const [detail, setDetail] = useState("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
   const [action, setAction] = useState<BankAction>(null);
   const [error, setError] = useState<string | null>(null);
-  const isConnected = status?.connected ?? false;
+  const [isConnected, setIsConnected] = useState(false);
   const isConfigured = Boolean(apiBaseUrl);
+  const getTokenRef = React.useRef(getToken);
+
+  React.useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
   const request = React.useCallback(
     async <T,>(path: string, init?: RequestInit) => {
@@ -277,18 +322,21 @@ function useBankConnection(
         throw new Error("Set EXPO_PUBLIC_API_URL to use bank connections.");
       }
 
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) {
         throw new Error("Sign in again before using bank connections.");
       }
 
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+
+      if (init?.body !== undefined) {
+        headers.set("Content-Type", "application/json");
+      }
+
       const response = await fetch(`${apiBaseUrl}${path}`, {
         ...init,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          ...init?.headers
-        }
+        headers
       });
       const payload = await response.json().catch(() => null);
 
@@ -302,7 +350,7 @@ function useBankConnection(
 
       return payload as T;
     },
-    [getToken]
+    []
   );
 
   const run = React.useCallback(
@@ -321,19 +369,57 @@ function useBankConnection(
     []
   );
 
-  const refresh = React.useCallback(
-    async () =>
-      run("refresh", async () => {
-        setStatus(await request<TinkStatus>("/integrations/tink/status"));
-      }),
-    [request, run]
-  );
+  const loadStatus = React.useCallback(async () => {
+    const status = await request<TinkStatusResponse>("/integrations/tink/status");
+    setIsConnected(status.connected);
+    setStatusLabel(status.connected ? "Connected" : "Ready");
 
-  useEffect(() => {
-    if (isPersisted && isConfigured) {
-      void refresh();
+    if (status.connected) {
+      const syncDetail = status.lastSyncedAt
+        ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}.`
+        : "Tink authorization completed. Sync to import accounts and posted transactions.";
+      setDetail(syncDetail);
+      return;
     }
-  }, [isConfigured, isPersisted, refresh]);
+
+    if (status.lastError) {
+      setDetail(status.lastError);
+      return;
+    }
+
+    setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
+  }, [request]);
+
+  React.useEffect(() => {
+    if (!isPersisted || !isConfigured) {
+      return;
+    }
+
+    void loadStatus().catch(() => undefined);
+  }, [isConfigured, isPersisted, loadStatus]);
+
+  React.useEffect(() => {
+    if (!bankConnectionReturn) {
+      return;
+    }
+
+    if (bankConnectionReturn.status === "authorized") {
+      setStatusLabel("Authorized");
+      setIsConnected(true);
+      setDetail("Tink authorization completed. Sync to import accounts and posted transactions.");
+      void loadStatus().catch(() => undefined);
+    } else {
+      setStatusLabel("Authorization failed");
+      setIsConnected(false);
+      setError(bankConnectionReturn.message ?? "Tink authorization failed.");
+    }
+
+    onBankConnectionReturnHandled?.();
+  }, [bankConnectionReturn, loadStatus, onBankConnectionReturnHandled]);
+
+  const refresh = React.useCallback(() => {
+    void run("refresh", loadStatus);
+  }, [loadStatus, run]);
 
   return {
     action,
@@ -341,29 +427,47 @@ function useBankConnection(
     icon: isConnected ? "bank-check" : "bank-outline",
     isBusy: action !== null,
     isConnected,
-    statusLabel: status?.status ?? (isConfigured ? "Not connected" : "Not configured"),
-    detail: getBankConnectionDetail(status, isPersisted, isConfigured),
+    statusLabel: isConfigured ? statusLabel : "Not configured",
+    detail: getBankConnectionDetail(detail, isPersisted, isConfigured),
     refresh,
     connect: () =>
       run("connect", async () => {
         const response = await request<{ url: string }>("/integrations/tink/link");
+        setStatusLabel("Authorization started");
+        setIsConnected(false);
         await Linking.openURL(response.url);
       }),
     sync: () =>
       run("sync", async () => {
-        await request("/integrations/tink/sync", { method: "POST" });
-        setStatus(await request<TinkStatus>("/integrations/tink/status"));
+        const result = await request<TinkSyncResponse>("/integrations/tink/sync", { method: "POST" });
+        setIsConnected(true);
+        setStatusLabel("Synced");
+        setDetail(formatSyncResult(result));
       }),
     disconnect: () =>
       run("disconnect", async () => {
         await request("/integrations/tink/disconnect", { method: "POST" });
-        setStatus(await request<TinkStatus>("/integrations/tink/status"));
+        setIsConnected(false);
+        setStatusLabel("Disconnected");
+        setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
       })
   };
 }
 
+function formatSyncResult(result: TinkSyncResponse) {
+  const accountChangeCount = result.accounts.createdCount + result.accounts.updatedCount;
+  const transactionSkippedCount =
+    result.transactions.skippedBeforeImportCount + result.transactions.skippedDuringImportCount;
+
+  return [
+    `Sync complete ${new Date().toLocaleString()}.`,
+    `${accountChangeCount} account ${accountChangeCount === 1 ? "change" : "changes"} (${result.accounts.createdCount} new, ${result.accounts.updatedCount} updated, ${result.accounts.skippedCount} skipped).`,
+    `${result.transactions.importedCount} transaction${result.transactions.importedCount === 1 ? "" : "s"} imported (${result.transactions.fetchedCount} fetched, ${transactionSkippedCount} skipped).`
+  ].join(" ");
+}
+
 function getBankConnectionDetail(
-  status: TinkStatus | null,
+  detail: string,
   isPersisted: boolean,
   isConfigured: boolean
 ) {
@@ -375,16 +479,7 @@ function getBankConnectionDetail(
     return "Set EXPO_PUBLIC_API_URL to enable the API-backed Tink flow.";
   }
 
-  if (!status || status.status === "not_connected") {
-    return "Connect a bank through Tink, then sync read-only accounts and posted transactions.";
-  }
-
-  const synced = status.lastSyncedAt
-    ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}.`
-    : "No successful sync yet.";
-  const failure = status.lastError ? ` ${status.lastError}` : "";
-
-  return `${synced} Sync status: ${status.lastSyncStatus ?? "never_synced"}.${failure}`;
+  return detail;
 }
 
 const styles = StyleSheet.create({

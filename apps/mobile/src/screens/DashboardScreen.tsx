@@ -21,7 +21,7 @@ export function DashboardScreen() {
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
   const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
-  const unreconciledAccounts = reconciliations.filter((reconciliation) => !reconciliation.isBalanced);
+  const unreconciledAccounts = reconciliations.filter((reconciliation) => reconciliation.needsReconciliation);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
   return (
@@ -98,7 +98,11 @@ export function DashboardScreen() {
               />
               <View style={styles.reconciliationRow}>
                 <Chip compact icon={reconciliation.isBalanced ? "check-circle-outline" : "alert-circle-outline"}>
-                  {reconciliation.isBalanced ? "Reconciled" : "Needs reconciliation"}
+                  {reconciliation.isProviderSnapshot
+                    ? "Bank snapshot"
+                    : reconciliation.isBalanced
+                      ? "Reconciled"
+                      : "Needs reconciliation"}
                 </Chip>
                 <Text variant="bodySmall" style={reconciliation.isBalanced ? styles.muted : styles.warningText}>
                   Ledger {formatMoney(reconciliation.computedBalance, reconciliation.account.currency)}

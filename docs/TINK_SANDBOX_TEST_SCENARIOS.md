@@ -7,7 +7,12 @@ Use these scenarios with a Tink Sandbox app and demo bank to verify the read-onl
 - Root `.env.local` has `EXPO_PUBLIC_API_URL=http://localhost:4000` and auth providers enabled for mobile testing.
 - `apps/api/.env` or the API process environment has Clerk, Convex, `API_SERVICE_SECRET`, `OAUTH_STATE_SECRET`, `TOKEN_ENCRYPTION_KEY`, and the Tink sandbox credentials.
 - `TINK_REDIRECT_URI` matches the callback URL registered in the Tink app, usually `http://localhost:4000/integrations/tink/callback`.
-- `TINK_SCOPES` includes `accounts:read,balances:read,transactions:read,provider-consents:read`.
+- `APP_REDIRECT_URL` points to the app surface you are testing, for example `http://localhost:8081` for Expo web or `wise-finance://` for native.
+- `TINK_SCOPES` includes `accounts:read,balances:read,transactions:read,provider-consents:read,user:read,credentials:read,credentials:refresh`.
+- `TINK_LINK_BASE_URL` uses the transactions connection flow: `https://link.tink.com/1.0/transactions/connect-accounts`.
+- Sandbox runs use `TINK_MARKET=GB`, `TINK_TEST_MODE=true`, `TINK_LOCALE=en_US`, `TINK_INPUT_PROVIDER=uk-demobank-open-banking-redirect`, and `TINK_INPUT_USERNAME=u12345` to preselect the GB Tink Demo Bank (Open Banking redirect). The exact slug enabled for a given Tink app may differ — run `node apps/api/scripts/list-tink-providers.mjs` to list providers your client has access to. Set `TINK_USE_INPUT_PREFILL=false` to debug Link without provider and username prefill while keeping those env values.
+- By default sandbox uses a one-time Link URL with `response_type=code` and scopes on the URL. Set `TINK_USE_EXISTING_USER=true` only when testing the existing-user Link path; if Link cannot fetch that user, it may show `REQUEST_FAILED_FETCH_EXISTING_USER`.
+- Use `TINK_LINK_AUTH_MODE=code` for Transactions Link. Token mode is only for targeted debugging and can be rejected by Link with `INVALID_STATE_PROVIDER`.
 - The API and Convex backend are running, then the Expo app is opened as a signed-in user.
 
 ## Automated Coverage
@@ -24,7 +29,7 @@ These cover sandbox-shaped account balances, transaction amount/date variants, p
 
 1. Open the app as a signed-in user.
 2. Go to Settings and start Tink bank aggregation.
-3. Complete Tink Link with the demo bank.
+3. Complete Tink Link with the demo bank. Depending on the selected demo bank, Tink may offer multiple sign-in methods such as Mobile BankID, Password and OTP, or Redirect.
 4. Confirm the callback returns to the app with `provider=tink` and `status=authorized`.
 5. Trigger Sync.
 

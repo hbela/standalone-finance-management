@@ -13,6 +13,7 @@ const accounts: Account[] = [
   {
     id: "forint",
     source: "local_bank",
+    providerAccountId: "provider-forint",
     name: "Forint",
     currency: "HUF",
     type: "checking",
@@ -84,9 +85,55 @@ describe("finance data quality", () => {
         computedBalance: 1000,
         difference: 1,
         transactionCount: 1,
-        isBalanced: true
+        isBalanced: true,
+        isProviderSnapshot: true,
+        needsReconciliation: false
       })
     ]);
+  });
+
+  it("does not flag provider balance snapshots when imported history is partial", () => {
+    const [providerReconciliation] = getAccountBalanceReconciliations(
+      [
+        {
+          id: "provider-bank",
+          source: "local_bank",
+          providerAccountId: "provider-bank",
+          name: "Provider bank",
+          currency: "EUR",
+          type: "checking",
+          currentBalance: 500
+        }
+      ],
+      [
+        {
+          id: "recent-transaction",
+          accountId: "provider-bank",
+          source: "local_bank",
+          postedAt: "2026-05-03",
+          amount: -25,
+          currency: "EUR",
+          baseCurrencyAmount: -25,
+          description: "Recent card payment",
+          merchant: "Shop",
+          category: "Shopping",
+          type: "expense",
+          isRecurring: false,
+          isExcludedFromReports: false,
+          dedupeHash: "recent-transaction"
+        }
+      ]
+    );
+
+    expect(providerReconciliation).toEqual(
+      expect.objectContaining({
+        computedBalance: -25,
+        difference: 525,
+        isBalanced: false,
+        isProviderSnapshot: true,
+        needsReconciliation: false
+      })
+    );
   });
 
   it("keeps matched transfers out of dashboard spending and income", () => {

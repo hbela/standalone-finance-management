@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { ClerkProvider, useAuth, useSignIn, useSignUp } from "@clerk/clerk-expo";
 import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth } from "convex/react";
 import * as SecureStore from "expo-secure-store";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Button, Card, PaperProvider, TextInput } from "react-native-paper";
 
@@ -11,6 +11,11 @@ import { FinanceProvider } from "./src/state/FinanceContext";
 import { financeTheme } from "./src/theme/theme";
 
 export type AppTab = "onboarding" | "dashboard" | "transactions" | "debts" | "settings";
+export type BankConnectionReturn = {
+  provider: "tink";
+  status: "authorized" | "failed";
+  message?: string;
+};
 
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
@@ -98,9 +103,28 @@ class FinanceDataErrorBoundary extends React.Component<
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
+  const [bankConnectionReturn, setBankConnectionReturn] = useState<BankConnectionReturn | null>(null);
   const missingAuthProviderConfig = enableAuthProviders && (!clerkPublishableKey || !convexUrl);
   const shouldUseAuthProviders =
     enableAuthProviders && Boolean(clerkPublishableKey) && Boolean(convex);
+
+  React.useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      const nextBankConnectionReturn = parseBankConnectionReturn(url);
+
+      if (!nextBankConnectionReturn) {
+        return;
+      }
+
+      setBankConnectionReturn(nextBankConnectionReturn);
+      setActiveTab("settings");
+    };
+
+    void Linking.getInitialURL().then(handleUrl);
+    const subscription = Linking.addEventListener("url", ({ url }) => handleUrl(url));
+
+    return () => subscription.remove();
+  }, []);
 
   if (missingAuthProviderConfig) {
     const missingValues = [
@@ -138,7 +162,12 @@ export default function App() {
     <AppErrorBoundary>
       <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
         <ConvexProviderWithAuth client={convex} useAuth={useClerkConvexAuth}>
-          <PersistedAppShell activeTab={activeTab} onTabChange={setActiveTab} />
+          <PersistedAppShell
+            activeTab={activeTab}
+            bankConnectionReturn={bankConnectionReturn}
+            onBankConnectionReturnHandled={() => setBankConnectionReturn(null)}
+            onTabChange={setActiveTab}
+          />
         </ConvexProviderWithAuth>
       </ClerkProvider>
     </AppErrorBoundary>
@@ -181,13 +210,20 @@ function useClerkConvexAuth() {
 
 function PersistedAppShell({
   activeTab,
+  bankConnectionReturn,
+  onBankConnectionReturnHandled,
   onTabChange
 }: {
   activeTab: AppTab;
+  bankConnectionReturn: BankConnectionReturn | null;
+  onBankConnectionReturnHandled: () => void;
   onTabChange: (tab: AppTab) => void;
 }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { isLoaded, isSignedIn, signOut } = useAuth();
+  const handleSignOut = React.useCallback(() => {
+    void signOut();
+  }, [signOut]);
 
   if (isLoading) {
     return (
@@ -225,12 +261,58 @@ function PersistedAppShell({
       <PaperProvider theme={financeTheme}>
         <FinanceDataErrorBoundary>
           <FinanceProvider persistWithConvex>
-            <Shell activeTab={activeTab} onTabChange={onTabChange} onSignOut={() => void signOut()} />
+            <Shell
+              activeTab={activeTab}
+              bankConnectionReturn={bankConnectionReturn}
+              onBankConnectionReturnHandled={onBankConnectionReturnHandled}
+              onTabChange={onTabChange}
+              onSignOut={handleSignOut}
+            />
           </FinanceProvider>
         </FinanceDataErrorBoundary>
       </PaperProvider>
     </SafeAreaProvider>
   );
+}
+
+function parseBankConnectionReturn(url: string | null): BankConnectionReturn | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/^\/+/, "");
+    const isBankConnectedReturn = parsed.hostname === "bank-connected" || path === "bank-connected";
+    const provider = parsed.searchParams.get("provider");
+    const status = parsed.searchParams.get("status");
+
+    if (!isBankConnectedReturn || provider !== "tink") {
+      return null;
+    }
+
+    if (status === "authorized") {
+      return {
+        provider,
+        status
+      };
+    }
+
+    if (status === "failed") {
+      return {
+        provider,
+        status,
+        message:
+          parsed.searchParams.get("message") ??
+          parsed.searchParams.get("error") ??
+          "Tink authorization failed."
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function AuthScreen() {

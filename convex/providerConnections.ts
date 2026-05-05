@@ -7,7 +7,7 @@ import { getCurrentUser, getOrCreateCurrentUser } from "./model";
 
 const providerName = v.union(v.literal("tink"), v.literal("wise"));
 
-const countryCode = v.union(v.literal("HU"), v.literal("FR"));
+const countryCode = v.union(v.literal("HU"), v.literal("FR"), v.literal("GB"));
 
 const providerConnectionStatus = v.union(
   v.literal("pending"),
@@ -158,7 +158,8 @@ export const apiRecordConnectionStarted = mutation({
     provider: providerName,
     country: countryCode,
     scopes: v.array(v.string()),
-    stateHash: v.string()
+    stateHash: v.string(),
+    externalUserId: v.optional(v.string())
   },
   handler: async (ctx, args) => {
     verifyApiSecret(args.apiSecret);
@@ -170,7 +171,8 @@ export const apiRecordConnectionStarted = mutation({
       provider: args.provider,
       country: args.country,
       scopes: args.scopes,
-      stateHash: args.stateHash
+      stateHash: args.stateHash,
+      externalUserId: args.externalUserId
     });
   }
 });
@@ -317,6 +319,7 @@ export const apiGetConnectionForUser = query({
       connectionId: connection._id,
       provider: connection.provider,
       status: connection.status,
+      externalUserId: connection.externalUserId,
       scopes: connection.scopes,
       tokenRef: connection.tokenRef,
       lastSyncedAt: connection.lastSyncedAt,
@@ -428,9 +431,10 @@ async function recordStartedForUser(
   args: {
     userId: Id<"users">;
     provider: "tink" | "wise";
-    country: "HU" | "FR";
+    country: "HU" | "FR" | "GB";
     scopes: string[];
     stateHash: string;
+    externalUserId?: string;
   }
 ) {
   const now = Date.now();
@@ -447,7 +451,8 @@ async function recordStartedForUser(
     scopes: args.scopes,
     lastSyncStatus: "never_synced" as const,
     lastError: undefined,
-    updatedAt: now
+    updatedAt: now,
+    ...(args.externalUserId ? { externalUserId: args.externalUserId } : {})
   };
 
   const connectionId = existing

@@ -6,7 +6,7 @@ import { sendNotConfigured, sendUnauthorized } from "./errors.js";
 
 export function requireUserId(request: FastifyRequest, reply: FastifyReply) {
   if (!config.clerkPublishableKey || !config.clerkSecretKey) {
-    sendNotConfigured(reply, "Clerk");
+    sendNotConfigured(reply, "Clerk", `Missing ${getMissingClerkEnvNames().join(" and ")}.`);
     return null;
   }
 
@@ -18,4 +18,18 @@ export function requireUserId(request: FastifyRequest, reply: FastifyReply) {
   }
 
   return auth.userId;
+}
+
+function getMissingClerkEnvNames() {
+  const missing = [];
+
+  if (!config.clerkPublishableKey) {
+    missing.push("CLERK_PUBLISHABLE_KEY or EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY");
+  }
+
+  if (!config.clerkSecretKey) {
+    missing.push("CLERK_SECRET_KEY");
+  }
+
+  return missing;
 }

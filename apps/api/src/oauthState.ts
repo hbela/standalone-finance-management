@@ -6,13 +6,15 @@ type TinkStatePayload = {
   provider: "tink";
   nonce: string;
   issuedAt: number;
+  tinkUserId?: string;
 };
 
-export function createTinkState(secret: string) {
+export function createTinkState(secret: string, input?: { tinkUserId?: string }) {
   const payload: TinkStatePayload = {
     provider: "tink",
     nonce: randomUUID(),
-    issuedAt: Date.now()
+    issuedAt: Date.now(),
+    tinkUserId: input?.tinkUserId
   };
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const signature = sign(encodedPayload, secret);

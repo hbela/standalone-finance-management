@@ -12,6 +12,7 @@ export type ProviderTokenSet = {
   scope?: string;
   expiresAt?: number;
   externalUserId?: string;
+  externalCredentialId?: string;
   receivedAt: number;
 };
 

@@ -56,6 +56,8 @@ export type AccountBalanceReconciliation = {
   difference: number;
   transactionCount: number;
   isBalanced: boolean;
+  isProviderSnapshot: boolean;
+  needsReconciliation: boolean;
 };
 
 export function getAccountBalanceReconciliations(
@@ -71,13 +73,17 @@ export function getAccountBalanceReconciliations(
     const accountTransactions = transactionsByAccount.get(account.id) ?? [];
     const computedBalance = accountTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
     const difference = account.currentBalance - computedBalance;
+    const isProviderSnapshot = Boolean(account.providerAccountId);
+    const isBalanced = Math.abs(difference) <= getBalanceTolerance(account.currency);
 
     return {
       account,
       computedBalance,
       difference,
       transactionCount: accountTransactions.length,
-      isBalanced: Math.abs(difference) <= getBalanceTolerance(account.currency)
+      isBalanced,
+      isProviderSnapshot,
+      needsReconciliation: !isProviderSnapshot && !isBalanced
     };
   });
 }
