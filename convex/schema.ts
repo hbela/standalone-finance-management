@@ -83,15 +83,33 @@ export default defineSchema({
     bankId: v.optional(v.id("banks")),
     bankKey: v.optional(v.string()),
     providerAccountId: v.optional(v.string()),
+    credentialsId: v.optional(v.string()),
     name: v.string(),
     currency: currencyCode,
     type: accountType,
     currentBalance: v.number(),
+    availableBalance: v.optional(v.number()),
+    institutionName: v.optional(v.string()),
+    holderName: v.optional(v.string()),
+    iban: v.optional(v.string()),
+    bban: v.optional(v.string()),
     lastSyncedAt: v.optional(v.number()),
     archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number()
   }).index("by_user_id", ["userId"]),
+
+  balanceSnapshots: defineTable({
+    userId: v.id("users"),
+    accountId: v.id("accounts"),
+    snapshotDate: v.string(),
+    bookedBalance: v.number(),
+    availableBalance: v.optional(v.number()),
+    currency: currencyCode,
+    createdAt: v.number()
+  })
+    .index("by_account_date", ["accountId", "snapshotDate"])
+    .index("by_user_id", ["userId"]),
 
   transactions: defineTable({
     userId: v.id("users"),
@@ -111,6 +129,7 @@ export default defineSchema({
     isExcludedFromReports: v.boolean(),
     transferMatchId: v.optional(v.id("transactions")),
     dedupeHash: v.string(),
+    status: v.optional(v.union(v.literal("booked"), v.literal("pending"))),
     notes: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     createdAt: v.number(),
@@ -206,11 +225,39 @@ export default defineSchema({
     lastSyncedAt: v.optional(v.number()),
     lastSyncStatus: providerSyncStatus,
     lastError: v.optional(v.string()),
+    lastErrorCode: v.optional(v.string()),
+    consentExpiresAt: v.optional(v.number()),
+    credentialsId: v.optional(v.string()),
+    institutionName: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number()
   })
     .index("by_user_id", ["userId"])
     .index("by_user_provider", ["userId", "provider"]),
+
+  tinkCredentials: defineTable({
+    userId: v.id("users"),
+    providerConnectionId: v.id("providerConnections"),
+    credentialsId: v.string(),
+    providerName: v.optional(v.string()),
+    institutionName: v.optional(v.string()),
+    status: v.union(
+      v.literal("connected"),
+      v.literal("reconnect_required"),
+      v.literal("temporary_error"),
+      v.literal("unknown")
+    ),
+    statusCode: v.optional(v.string()),
+    statusUpdatedAt: v.optional(v.number()),
+    consentExpiresAt: v.optional(v.number()),
+    sessionExtendable: v.optional(v.boolean()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_provider_connection_id", ["providerConnectionId"])
+    .index("by_credentials_id", ["credentialsId"]),
 
   providerTokens: defineTable({
     tokenRef: v.string(),
@@ -243,6 +290,26 @@ export default defineSchema({
   })
     .index("by_user_id", ["userId"])
     .index("by_state_hash", ["stateHash"]),
+
+  providerWebhookEvents: defineTable({
+    provider: providerName,
+    eventId: v.string(),
+    eventType: v.string(),
+    receivedAt: v.number(),
+    processedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("received"),
+      v.literal("processed"),
+      v.literal("failed"),
+      v.literal("ignored")
+    ),
+    errorMessage: v.optional(v.string()),
+    payloadDigest: v.string(),
+    externalUserId: v.optional(v.string()),
+    credentialsId: v.optional(v.string())
+  })
+    .index("by_event_id", ["eventId"])
+    .index("by_provider_received_at", ["provider", "receivedAt"]),
 
   consentEvents: defineTable({
     userId: v.id("users"),

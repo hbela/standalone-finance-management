@@ -10,6 +10,18 @@ export class TinkAuthError extends Error {
   }
 }
 
+export class TinkRefreshRequiresUserError extends Error {
+  status: number;
+  errorCode?: string;
+
+  constructor(message: string, status: number, errorCode?: string) {
+    super(message);
+    this.name = "TinkRefreshRequiresUserError";
+    this.status = status;
+    this.errorCode = errorCode;
+  }
+}
+
 export type TinkTokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -19,12 +31,25 @@ export type TinkTokenResponse = {
   user_id?: string;
 };
 
+export type TinkAccountIdentifier = {
+  scheme?: string;
+  type?: string;
+  value?: string;
+  iban?: string | { iban?: string };
+  bban?: string | { bban?: string };
+};
+
 export type TinkAccount = {
   id: string;
   name?: string;
   type?: string;
   currencyCode?: string;
   financialInstitutionName?: string;
+  holderName?: string;
+  holders?: Array<{ name?: string }>;
+  identifiers?: TinkAccountIdentifier[];
+  credentialsId?: string;
+  credentials?: { id?: string };
   balances?: {
     booked?: TinkAmount;
     available?: TinkAmount;
@@ -65,6 +90,15 @@ export type TinkCredential = {
   status?: string;
   statusUpdated?: string;
   statusPayload?: string;
+};
+
+export type TinkProviderConsent = {
+  credentialsId?: string;
+  providerName?: string;
+  status?: string;
+  statusUpdated?: number | string;
+  sessionExpiryDate?: number | string;
+  sessionExtendable?: boolean;
 };
 
 type TinkClientTokenResponse = {
@@ -363,6 +397,99 @@ export async function listTinkCredentials(accessToken: string) {
   return payload.credentials;
 }
 
+export async function listTinkProviderConsents(accessToken: string) {
+  const response = await fetch(`${config.tinkApiBaseUrl}/api/v1/provider-consents`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "errorMessage" in payload
+        ? String(payload.errorMessage)
+        : `Tink provider consents request failed with ${response.status}`;
+
+    if (response.status === 401) {
+      throw new TinkAuthError(message, response.status);
+    }
+
+    throw new Error(message);
+  }
+
+  if (!isTinkProviderConsentsResponse(payload)) {
+    throw new Error("Tink provider consents returned an invalid response");
+  }
+
+  return payload.providerConsents;
+}
+
+export async function refreshTinkCredentials(accessToken: string, credentialsId: string) {
+  const response = await fetch(
+    `${config.tinkApiBaseUrl}/api/v1/credentials/${encodeURIComponent(credentialsId)}/refresh`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  if (response.status === 204 || response.ok) {
+    return;
+  }
+
+  const payload = await response.json().catch(() => null);
+  const message =
+    payload && typeof payload === "object" && "errorMessage" in payload
+      ? String(payload.errorMessage)
+      : `Tink credentials refresh failed with ${response.status}`;
+  const errorCode =
+    payload && typeof payload === "object" && "errorCode" in payload
+      ? String(payload.errorCode)
+      : undefined;
+
+  if (response.status === 401) {
+    throw new TinkAuthError(message, response.status);
+  }
+
+  if (refreshRequiresUser(response.status, errorCode, message)) {
+    throw new TinkRefreshRequiresUserError(message, response.status, errorCode);
+  }
+
+  throw new Error(message);
+}
+
+export function refreshRequiresUser(status: number, errorCode: string | undefined, message: string) {
+  if (status !== 400 && status !== 409) {
+    return false;
+  }
+
+  const code = errorCode?.toUpperCase() ?? "";
+  if (
+    code.includes("AUTHENTICATION") ||
+    code.includes("SUPPLEMENTAL") ||
+    code.includes("UPDATE_CONSENT") ||
+    code.includes("SCA")
+  ) {
+    return true;
+  }
+
+  const lowered = message.toLowerCase();
+  return (
+    lowered.includes("supplemental") ||
+    lowered.includes("authenticate") ||
+    lowered.includes("re-authorize") ||
+    lowered.includes("reauthorize") ||
+    lowered.includes("update consent")
+  );
+}
+
 export function parseTinkAmountValue(value: TinkAmount | string | number | undefined) {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -510,5 +637,16 @@ function isTinkCredentialsResponse(payload: unknown): payload is { credentials: 
     payload !== null &&
     "credentials" in payload &&
     Array.isArray(payload.credentials)
+  );
+}
+
+function isTinkProviderConsentsResponse(
+  payload: unknown
+): payload is { providerConsents: TinkProviderConsent[] } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "providerConsents" in payload &&
+    Array.isArray((payload as { providerConsents: unknown }).providerConsents)
   );
 }

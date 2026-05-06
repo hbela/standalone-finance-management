@@ -349,6 +349,7 @@ export const apiImportProviderTransactions = mutation({
         type: transactionType,
         isRecurring: v.boolean(),
         isExcludedFromReports: v.boolean(),
+        status: v.optional(v.union(v.literal("booked"), v.literal("pending"))),
         dedupeHash: v.string()
       })
     )
@@ -364,6 +365,7 @@ export const apiImportProviderTransactions = mutation({
       .collect();
     let imported = 0;
     let skipped = 0;
+    let updated = 0;
 
     for (const transaction of args.transactions) {
       const account = accounts.find(
@@ -378,6 +380,7 @@ export const apiImportProviderTransactions = mutation({
         continue;
       }
 
+      const incomingStatus: "booked" | "pending" = transaction.status ?? "booked";
       const input = {
         accountId: account._id,
         source: "local_bank" as const,
@@ -402,13 +405,31 @@ export const apiImportProviderTransactions = mutation({
 
       const duplicate = await findDuplicate(ctx, user._id, input);
       if (duplicate) {
-        skipped += 1;
+        const existingStatus = duplicate.status ?? "booked";
+        if (existingStatus === "pending" && incomingStatus === "booked") {
+          await ctx.db.patch(duplicate._id, {
+            postedAt: input.postedAt,
+            amount: input.amount,
+            baseCurrencyAmount: input.baseCurrencyAmount,
+            description: input.description,
+            merchant: input.merchant,
+            categoryId: input.categoryId,
+            type: input.type,
+            providerTransactionId: input.providerTransactionId,
+            status: "booked",
+            updatedAt: now
+          });
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
 
       await ctx.db.insert("transactions", {
         userId: user._id,
         ...input,
+        status: incomingStatus,
         createdAt: now,
         updatedAt: now
       });
@@ -440,12 +461,13 @@ export const apiImportProviderTransactions = mutation({
         provider: args.provider,
         resource: "transactions",
         imported: String(imported),
+        updated: String(updated),
         skipped: String(skipped)
       },
       createdAt: now
     });
 
-    return { imported, skipped };
+    return { imported, updated, skipped };
   }
 });
 

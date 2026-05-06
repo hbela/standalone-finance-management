@@ -34,6 +34,9 @@ export type ApiConfig = {
   tinkUseExistingUser: boolean;
   tinkLinkAuthMode: "code" | "token";
   oauthStateSecret?: string;
+  tinkWebhookSecret?: string;
+  tinkWebhookPath: string;
+  tinkWebhookToleranceSeconds: number;
   fxProviderUrl: string;
   fxCacheTtlMs: number;
 };
@@ -82,6 +85,11 @@ export const config: ApiConfig = {
   tinkUseExistingUser: process.env.TINK_USE_EXISTING_USER === "true",
   tinkLinkAuthMode: process.env.TINK_LINK_AUTH_MODE === "token" ? "token" : "code",
   oauthStateSecret: process.env.OAUTH_STATE_SECRET,
+  tinkWebhookSecret: process.env.TINK_WEBHOOK_SECRET,
+  tinkWebhookPath: process.env.TINK_WEBHOOK_PATH ?? "/integrations/tink/webhook",
+  tinkWebhookToleranceSeconds: Number.isFinite(Number(process.env.TINK_WEBHOOK_TOLERANCE_SECONDS))
+    ? Number(process.env.TINK_WEBHOOK_TOLERANCE_SECONDS)
+    : 300,
   fxProviderUrl: process.env.FX_PROVIDER_URL ?? "https://api.frankfurter.dev/v1/latest",
   fxCacheTtlMs: Number.isFinite(Number(process.env.FX_CACHE_TTL_MS))
     ? Number(process.env.FX_CACHE_TTL_MS)

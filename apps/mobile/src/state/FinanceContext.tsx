@@ -442,6 +442,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
           isExcludedFromReports: transaction.isExcludedFromReports,
           transferMatchId: transaction.transferMatchId,
           dedupeHash: transaction.dedupeHash,
+          status: transaction.status,
           notes: transaction.notes
         }))
         .sort((left, right) => right.postedAt.localeCompare(left.postedAt)),

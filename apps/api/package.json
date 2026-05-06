@@ -7,7 +7,7 @@
     "dev": "npm run build -w @wise-finance/shared && tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "npm run build && node test/tink-normalization.test.mjs",
+    "test": "npm run build && node test/tink-normalization.test.mjs && node test/tink-credential-state.test.mjs && node test/tink-consent.test.mjs && node test/tink-webhook-signature.test.mjs && node test/tink-refresh-classifier.test.mjs && node test/tink-credential-mapping.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

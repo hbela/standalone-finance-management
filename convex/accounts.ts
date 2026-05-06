@@ -184,7 +184,13 @@ export const apiUpsertProviderAccounts = mutation({
         name: v.string(),
         currency: currencyCode,
         type: accountType,
-        currentBalance: v.number()
+        currentBalance: v.number(),
+        availableBalance: v.optional(v.number()),
+        institutionName: v.optional(v.string()),
+        holderName: v.optional(v.string()),
+        iban: v.optional(v.string()),
+        bban: v.optional(v.string()),
+        credentialsId: v.optional(v.string())
       })
     )
   },
@@ -195,6 +201,7 @@ export const apiUpsertProviderAccounts = mutation({
     const now = Date.now();
     let createdCount = 0;
     let updatedCount = 0;
+    const upsertedAccounts: Array<{ providerAccountId: string; accountId: string }> = [];
 
     const existingAccounts = await ctx.db
       .query("accounts")
@@ -217,13 +224,23 @@ export const apiUpsertProviderAccounts = mutation({
           currency: providerAccount.currency,
           type: providerAccount.type,
           currentBalance: providerAccount.currentBalance,
+          availableBalance: providerAccount.availableBalance,
+          institutionName: providerAccount.institutionName,
+          holderName: providerAccount.holderName,
+          iban: providerAccount.iban,
+          bban: providerAccount.bban,
+          credentialsId: providerAccount.credentialsId,
           lastSyncedAt: now,
           archivedAt: undefined,
           updatedAt: now
         });
         updatedCount += 1;
+        upsertedAccounts.push({
+          providerAccountId: providerAccount.providerAccountId,
+          accountId: existing._id
+        });
       } else {
-        await ctx.db.insert("accounts", {
+        const accountId = await ctx.db.insert("accounts", {
           userId: user._id,
           source: "local_bank",
           bankKey: providerAccount.bankKey,
@@ -232,11 +249,21 @@ export const apiUpsertProviderAccounts = mutation({
           currency: providerAccount.currency,
           type: providerAccount.type,
           currentBalance: providerAccount.currentBalance,
+          availableBalance: providerAccount.availableBalance,
+          institutionName: providerAccount.institutionName,
+          holderName: providerAccount.holderName,
+          iban: providerAccount.iban,
+          bban: providerAccount.bban,
+          credentialsId: providerAccount.credentialsId,
           lastSyncedAt: now,
           createdAt: now,
           updatedAt: now
         });
         createdCount += 1;
+        upsertedAccounts.push({
+          providerAccountId: providerAccount.providerAccountId,
+          accountId
+        });
       }
     }
 
@@ -272,8 +299,64 @@ export const apiUpsertProviderAccounts = mutation({
 
     return {
       createdCount,
-      updatedCount
+      updatedCount,
+      upsertedAccounts
     };
+  }
+});
+
+export const apiInsertBalanceSnapshot = mutation({
+  args: {
+    apiSecret: v.string(),
+    accountId: v.id("accounts"),
+    snapshotDate: v.string(),
+    bookedBalance: v.number(),
+    availableBalance: v.optional(v.number()),
+    currency: currencyCode
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const account = await ctx.db.get(args.accountId);
+    if (!account) {
+      throw new Error("Account not found");
+    }
+
+    if (!Number.isFinite(args.bookedBalance)) {
+      throw new Error("Snapshot balance must be a valid number");
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(args.snapshotDate)) {
+      throw new Error("Snapshot date must be YYYY-MM-DD");
+    }
+
+    const existing = await ctx.db
+      .query("balanceSnapshots")
+      .withIndex("by_account_date", (q) =>
+        q.eq("accountId", args.accountId).eq("snapshotDate", args.snapshotDate)
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        bookedBalance: args.bookedBalance,
+        availableBalance: args.availableBalance,
+        currency: args.currency
+      });
+      return { created: false };
+    }
+
+    await ctx.db.insert("balanceSnapshots", {
+      userId: account.userId,
+      accountId: args.accountId,
+      snapshotDate: args.snapshotDate,
+      bookedBalance: args.bookedBalance,
+      availableBalance: args.availableBalance,
+      currency: args.currency,
+      createdAt: Date.now()
+    });
+
+    return { created: true };
   }
 });
 

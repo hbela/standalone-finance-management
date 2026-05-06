@@ -52,6 +52,7 @@ export type Transaction = {
   isExcludedFromReports: boolean;
   transferMatchId?: string;
   dedupeHash: string;
+  status?: "booked" | "pending";
   notes?: string;
 };
 

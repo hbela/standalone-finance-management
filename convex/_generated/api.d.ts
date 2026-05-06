@@ -16,6 +16,8 @@ import type * as liabilities from "../liabilities.js";
 import type * as model from "../model.js";
 import type * as providerConnections from "../providerConnections.js";
 import type * as providerTokens from "../providerTokens.js";
+import type * as providerWebhookEvents from "../providerWebhookEvents.js";
+import type * as tinkCredentials from "../tinkCredentials.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   model: typeof model;
   providerConnections: typeof providerConnections;
   providerTokens: typeof providerTokens;
+  providerWebhookEvents: typeof providerWebhookEvents;
+  tinkCredentials: typeof tinkCredentials;
   transactions: typeof transactions;
   users: typeof users;
 }>;

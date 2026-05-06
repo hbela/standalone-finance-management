@@ -325,6 +325,10 @@ export const apiGetConnectionForUser = query({
       lastSyncedAt: connection.lastSyncedAt,
       lastSyncStatus: connection.lastSyncStatus,
       lastError: connection.lastError,
+      lastErrorCode: connection.lastErrorCode,
+      consentExpiresAt: connection.consentExpiresAt,
+      credentialsId: connection.credentialsId,
+      institutionName: connection.institutionName,
       updatedAt: connection.updatedAt
     };
   }
@@ -369,6 +373,149 @@ export const apiMarkSyncStatus = mutation({
       lastError: args.lastError,
       updatedAt: now
     });
+  }
+});
+
+export const apiMarkConnectionReconnectRequired = mutation({
+  args: {
+    apiSecret: v.string(),
+    clerkUserId: v.string(),
+    provider: providerName,
+    errorCode: v.string(),
+    errorMessage: v.optional(v.string()),
+    credentialId: v.optional(v.string())
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+
+    if (!user) {
+      return { updated: false };
+    }
+
+    const connection = await ctx.db
+      .query("providerConnections")
+      .withIndex("by_user_provider", (q) =>
+        q.eq("userId", user._id).eq("provider", args.provider)
+      )
+      .unique();
+
+    if (!connection) {
+      return { updated: false };
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(connection._id, {
+      status: "reconnect_required",
+      lastSyncStatus: "failed",
+      lastError: args.errorMessage,
+      lastErrorCode: args.errorCode,
+      updatedAt: now
+    });
+
+    const metadata: Record<string, string> = {
+      provider: args.provider,
+      errorCode: args.errorCode
+    };
+    if (args.credentialId) {
+      metadata.credentialId = args.credentialId;
+    }
+    if (args.errorMessage) {
+      metadata.errorMessage = args.errorMessage;
+    }
+
+    await ctx.db.insert("consentEvents", {
+      userId: user._id,
+      type: "provider_reconnect",
+      status: "revoked",
+      metadata,
+      createdAt: now
+    });
+
+    return { updated: true };
+  }
+});
+
+export const apiGetClerkUserIdByExternalUserId = query({
+  args: {
+    apiSecret: v.string(),
+    provider: providerName,
+    externalUserId: v.string()
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const connections = await ctx.db
+      .query("providerConnections")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("provider"), args.provider),
+          q.eq(q.field("externalUserId"), args.externalUserId)
+        )
+      )
+      .collect();
+
+    if (connections.length === 0) {
+      return null;
+    }
+
+    const user = await ctx.db.get(connections[0].userId);
+    return user?.clerkUserId ?? null;
+  }
+});
+
+export const apiUpdateConnectionConsent = mutation({
+  args: {
+    apiSecret: v.string(),
+    clerkUserId: v.string(),
+    provider: providerName,
+    consentExpiresAt: v.optional(v.number()),
+    credentialsId: v.optional(v.string()),
+    institutionName: v.optional(v.string())
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+
+    if (!user) {
+      return { updated: false };
+    }
+
+    const connection = await ctx.db
+      .query("providerConnections")
+      .withIndex("by_user_provider", (q) =>
+        q.eq("userId", user._id).eq("provider", args.provider)
+      )
+      .unique();
+
+    if (!connection) {
+      return { updated: false };
+    }
+
+    const patch: Record<string, unknown> = {
+      updatedAt: Date.now()
+    };
+    if (args.consentExpiresAt !== undefined) {
+      patch.consentExpiresAt = args.consentExpiresAt;
+    }
+    if (args.credentialsId !== undefined) {
+      patch.credentialsId = args.credentialsId;
+    }
+    if (args.institutionName !== undefined) {
+      patch.institutionName = args.institutionName;
+    }
+
+    await ctx.db.patch(connection._id, patch);
+
+    return { updated: true };
   }
 });
 

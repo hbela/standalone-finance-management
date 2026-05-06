@@ -16,17 +16,29 @@ function scenario(name, run) {
   scenarios.push({ name, run });
 }
 
-scenario("normalizes demo bank accounts into local bank accounts", () => {
+scenario("normalizes demo bank accounts into local bank accounts with holder/institution metadata", () => {
   const result = normalizeTinkAccounts([
     {
       id: "acc-huf-main",
       name: "  Daily HUF  ",
       type: "CHECKING_ACCOUNT",
       financialInstitutionName: "Demo Bank Hungary",
+      holderName: "  Béla Hajzer  ",
+      credentialsId: "cred-otp",
+      identifiers: [
+        { scheme: "iban", value: "HU42117730161111101800000000" },
+        { scheme: "bban", value: "11773016-11111018-00000000" }
+      ],
       balances: {
         booked: {
           amount: {
             value: "145000.75",
+            currencyCode: "HUF"
+          }
+        },
+        available: {
+          amount: {
+            value: "140000",
             currencyCode: "HUF"
           }
         }
@@ -36,6 +48,9 @@ scenario("normalizes demo bank accounts into local bank accounts", () => {
       id: "acc-eur-card",
       type: "CREDIT_CARD",
       financialInstitutionName: "Demo Bank Hungary",
+      holders: [{ name: "Wise Finance Demo" }],
+      credentials: { id: "cred-erste" },
+      identifiers: [{ iban: { iban: "DE89370400440532013000" } }],
       balance: {
         value: -120.5,
         currencyCode: "EUR"
@@ -52,7 +67,13 @@ scenario("normalizes demo bank accounts into local bank accounts", () => {
         name: "Daily HUF",
         currency: "HUF",
         type: "checking",
-        currentBalance: 145000.75
+        currentBalance: 145000.75,
+        availableBalance: 140000,
+        institutionName: "Demo Bank Hungary",
+        holderName: "Béla Hajzer",
+        iban: "HU42117730161111101800000000",
+        bban: "11773016-11111018-00000000",
+        credentialsId: "cred-otp"
       },
       {
         providerAccountId: "acc-eur-card",
@@ -60,7 +81,13 @@ scenario("normalizes demo bank accounts into local bank accounts", () => {
         name: "Demo Bank Hungary",
         currency: "EUR",
         type: "credit",
-        currentBalance: -120.5
+        currentBalance: -120.5,
+        availableBalance: undefined,
+        institutionName: "Demo Bank Hungary",
+        holderName: "Wise Finance Demo",
+        iban: "DE89370400440532013000",
+        bban: undefined,
+        credentialsId: "cred-erste"
       }
     ]
   });
@@ -97,7 +124,13 @@ scenario("skips accounts that cannot be safely imported", () => {
       name: "Car Loan",
       currency: "EUR",
       type: "loan",
-      currentBalance: -9000
+      currentBalance: -9000,
+      availableBalance: undefined,
+      institutionName: undefined,
+      holderName: undefined,
+      iban: undefined,
+      bban: undefined,
+      credentialsId: undefined
     }
   ]);
 });
@@ -162,7 +195,8 @@ scenario("normalizes posted transactions and creates stable provider dedupe hash
       type: "expense",
       isRecurring: false,
       isExcludedFromReports: false,
-      dedupeHash: "tink|acc-huf-main|tx-grocery-1|2026-05-03|-10000.00|HUF|spar budapest|spar"
+      status: "booked",
+      dedupeHash: "tink|acc-huf-main|2026-05-03|-10000.00|HUF|spar budapest|spar"
     }
   );
   assert.deepStrictEqual(result.transactions[1], {
@@ -178,17 +212,19 @@ scenario("normalizes posted transactions and creates stable provider dedupe hash
     type: "refund",
     isRecurring: false,
     isExcludedFromReports: false,
-    dedupeHash: "tink|acc-eur-card|tx-refund-1|2026-05-04|12.99|EUR|card refund|online shop"
+    status: "booked",
+    dedupeHash: "tink|acc-eur-card|2026-05-04|12.99|EUR|card refund|online shop"
   });
 });
 
-scenario("skips pending or incomplete transactions before Convex import", () => {
+scenario("retains pending transactions and skips structurally incomplete rows", () => {
   const result = normalizeTinkTransactions([
     {
       id: "tx-pending",
       accountId: "acc-huf-main",
       amount: -1000,
       currencyCode: "HUF",
+      description: "Pending coffee",
       bookedDate: "2026-05-04",
       status: "pending"
     },
@@ -220,10 +256,50 @@ scenario("skips pending or incomplete transactions before Convex import", () => 
     }
   ]);
 
-  assert.equal(result.skippedCount, 3);
-  assert.equal(result.transactions.length, 1);
-  assert.equal(result.transactions[0]?.type, "income");
-  assert.equal(result.transactions[0]?.description, "Salary");
+  assert.equal(result.skippedCount, 2);
+  assert.equal(result.transactions.length, 2);
+
+  const pending = result.transactions.find((tx) => tx.providerTransactionId === "tx-pending");
+  assert.ok(pending);
+  assert.equal(pending.status, "pending");
+
+  const booked = result.transactions.find((tx) => tx.providerTransactionId === "tx-good");
+  assert.ok(booked);
+  assert.equal(booked.status, "booked");
+  assert.equal(booked.type, "income");
+  assert.equal(booked.description, "Salary");
+});
+
+scenario("pending and booked twins of the same transaction produce the same dedupe hash", () => {
+  const result = normalizeTinkTransactions([
+    {
+      id: "tx-coffee-pending",
+      accountId: "acc-huf-main",
+      amount: -1500,
+      currencyCode: "HUF",
+      description: "Cafe Centrale",
+      merchantInformation: { merchantName: "Cafe Centrale" },
+      bookedDate: "2026-05-04",
+      status: "PENDING"
+    },
+    {
+      id: "tx-coffee-booked",
+      accountId: "acc-huf-main",
+      amount: -1500,
+      currencyCode: "HUF",
+      description: "Cafe Centrale",
+      merchantInformation: { merchantName: "Cafe Centrale" },
+      bookedDate: "2026-05-04",
+      status: "BOOKED"
+    }
+  ]);
+
+  assert.equal(result.transactions.length, 2);
+  const [pending, booked] = result.transactions;
+  assert.equal(pending.status, "pending");
+  assert.equal(booked.status, "booked");
+  assert.equal(pending.dedupeHash, booked.dedupeHash);
+  assert.notEqual(pending.providerTransactionId, booked.providerTransactionId);
 });
 
 scenario("parses Tink amount and date variants used by sandbox payloads", () => {

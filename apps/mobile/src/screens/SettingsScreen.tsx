@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
+import { useQuery } from "convex/react";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
 import type { BankConnectionReturn } from "../../App";
 import { Screen } from "../components/Screen";
+import { api } from "../convexApi";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import type { Currency } from "../data/types";
@@ -258,6 +260,19 @@ function AuthenticatedBankConnectionSection({
               Sync
             </Button>
             <Button
+              disabled={
+                !bankConnection.isConnected ||
+                bankConnection.needsReconnect ||
+                bankConnection.isBusy
+              }
+              icon="cloud-refresh"
+              loading={bankConnection.action === "refreshCredentials"}
+              mode="outlined"
+              onPress={() => bankConnection.refreshCredentials()}
+            >
+              Refresh data
+            </Button>
+            <Button
               disabled={bankConnection.isBusy}
               icon="refresh"
               loading={bankConnection.action === "refresh"}
@@ -278,6 +293,108 @@ function AuthenticatedBankConnectionSection({
           </View>
         </Card.Content>
       </Card>
+      <BankCredentialsList
+        isBusy={bankConnection.isBusy}
+        action={bankConnection.action}
+        onRefresh={bankConnection.refreshCredentials}
+        onExtend={bankConnection.extendConsent}
+      />
+    </>
+  );
+}
+
+type CredentialRow = {
+  id: string;
+  credentialsId: string;
+  providerName?: string;
+  institutionName?: string;
+  status: "connected" | "reconnect_required" | "temporary_error" | "unknown";
+  statusCode?: string;
+  consentExpiresAt?: number;
+  sessionExtendable?: boolean;
+};
+
+function BankCredentialsList({
+  isBusy,
+  action,
+  onRefresh,
+  onExtend
+}: {
+  isBusy: boolean;
+  action: BankAction;
+  onRefresh: (credentialsId: string) => void;
+  onExtend: (credentialsId: string) => void;
+}) {
+  const credentials = useQuery(api.tinkCredentials.listForCurrent) as CredentialRow[] | undefined;
+
+  if (!credentials || credentials.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <SectionTitle title="Connected banks" />
+      {credentials.map((credential) => {
+        const needsReconnect = credential.status === "reconnect_required";
+        const isTemporary = credential.status === "temporary_error";
+        const tone = needsReconnect ? "warning" : isTemporary ? "info" : "info";
+        const title =
+          credential.institutionName ??
+          credential.providerName ??
+          `Credential ${credential.credentialsId.slice(0, 8)}`;
+        const expiresLabel = credential.consentExpiresAt
+          ? `Consent expires ${new Date(credential.consentExpiresAt).toLocaleDateString()}.`
+          : null;
+        const statusDetail = needsReconnect
+          ? `Reconnect required${credential.statusCode ? ` (${credential.statusCode})` : ""}.`
+          : isTemporary
+            ? "Temporary error from Tink. Refreshing usually resolves it."
+            : credential.status === "unknown"
+              ? `Unknown state${credential.statusCode ? ` (${credential.statusCode})` : ""}.`
+              : "Connected.";
+
+        return (
+          <Card key={credential.id} mode="contained" style={styles.card}>
+            <Card.Content style={styles.content}>
+              <List.Item
+                title={title}
+                description={[statusDetail, expiresLabel].filter(Boolean).join(" ")}
+                left={(props) => (
+                  <List.Icon
+                    {...props}
+                    icon={needsReconnect ? "alert" : isTemporary ? "alert-circle-outline" : "bank-check"}
+                  />
+                )}
+              />
+              {tone === "warning" ? (
+                <StateCard title="Reconnect needed" detail={statusDetail} tone="warning" />
+              ) : null}
+              <View style={styles.actionRow}>
+                <Button
+                  disabled={isBusy}
+                  icon={needsReconnect ? "alert" : "cloud-refresh"}
+                  loading={action === "refreshCredentials"}
+                  mode={needsReconnect ? "contained" : "outlined"}
+                  onPress={() => onRefresh(credential.credentialsId)}
+                >
+                  {needsReconnect ? "Reconnect" : "Refresh"}
+                </Button>
+                {credential.sessionExtendable && !needsReconnect ? (
+                  <Button
+                    disabled={isBusy}
+                    icon="clock-plus-outline"
+                    loading={action === "extendConsent"}
+                    mode="outlined"
+                    onPress={() => onExtend(credential.credentialsId)}
+                  >
+                    Extend consent
+                  </Button>
+                ) : null}
+              </View>
+            </Card.Content>
+          </Card>
+        );
+      })}
     </>
   );
 }
@@ -297,7 +414,22 @@ function LocalBankConnectionSection() {
   );
 }
 
-type BankAction = "connect" | "sync" | "refresh" | "disconnect" | null;
+type BankAction =
+  | "connect"
+  | "sync"
+  | "refresh"
+  | "refreshCredentials"
+  | "extendConsent"
+  | "disconnect"
+  | null;
+
+type TinkRefreshCredentialsResponse = {
+  provider: "tink";
+  credentialsId: string;
+  method: "server_refresh" | "link";
+  errorCode?: string;
+  url?: string;
+};
 
 type TinkStatusResponse = {
   connected: boolean;
@@ -501,6 +633,40 @@ function useBankConnection(
         setReconnectReason(null);
         setStatusLabel("Disconnected");
         setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
+      }),
+    refreshCredentials: (credentialsId?: string) =>
+      run("refreshCredentials", async () => {
+        const response = await request<TinkRefreshCredentialsResponse>(
+          "/integrations/tink/refresh-credentials",
+          {
+            method: "POST",
+            body: credentialsId ? JSON.stringify({ credentialsId }) : undefined
+          }
+        );
+
+        if (response.method === "link" && response.url) {
+          setStatusLabel("Re-authorization required");
+          setDetail(
+            response.errorCode
+              ? `Tink needs you to re-authorize (${response.errorCode}). Opening secure flow…`
+              : "Tink needs you to re-authorize. Opening secure flow…"
+          );
+          await Linking.openURL(response.url);
+          return;
+        }
+
+        setStatusLabel("Refreshing");
+        setDetail(
+          "Refresh requested. Tink will deliver fresh data shortly; sync to see updates."
+        );
+      }),
+    extendConsent: (credentialsId?: string) =>
+      run("extendConsent", async () => {
+        const path = credentialsId
+          ? `/integrations/tink/extend-consent?credentialsId=${encodeURIComponent(credentialsId)}`
+          : "/integrations/tink/extend-consent";
+        const response = await request<{ url: string }>(path);
+        await Linking.openURL(response.url);
       })
   };
 }

@@ -7,6 +7,7 @@ import { registerBankRoutes } from "./routes/banks.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerMeRoutes } from "./routes/me.js";
 import { registerTinkRoutes } from "./routes/tink.js";
+import { registerTinkWebhookRoutes } from "./routes/tinkWebhooks.js";
 import { registerWiseRoutes } from "./routes/wise.js";
 
 export async function buildApp() {
@@ -29,6 +30,7 @@ export async function buildApp() {
   await registerMeRoutes(app);
   await registerBankRoutes(app);
   await registerTinkRoutes(app);
+  await registerTinkWebhookRoutes(app);
   await registerWiseRoutes(app);
 
   return app;

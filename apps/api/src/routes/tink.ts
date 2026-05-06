@@ -11,13 +11,22 @@ import {
   exchangeTinkAuthorizationCode,
   listTinkCredentials,
   listTinkAccounts,
+  listTinkProviderConsents,
   listTinkTransactions,
   parseTinkAmountValue,
+  refreshTinkCredentials,
+  TinkRefreshRequiresUserError,
   type TinkAccount,
   type TinkTransaction
 } from "../tinkClient.js";
 import { deleteProviderTokens, storeProviderTokens } from "../tokenVault.js";
 import { withTinkAccessToken } from "../tinkSession.js";
+import {
+  aggregateCredentialStates,
+  type AggregatedCredentialState
+} from "../tinkCredentialState.js";
+import { pickPrimaryProviderConsent } from "../tinkConsent.js";
+import { buildTinkCredentialRows } from "../tinkCredentialMapping.js";
 import {
   getFxSnapshot,
   toBaseCurrencyAmount,
@@ -37,11 +46,36 @@ type ConvexProviderConnection = {
   lastSyncedAt?: number;
   lastSyncStatus?: string;
   lastError?: string;
+  lastErrorCode?: string;
+  consentExpiresAt?: number;
+  credentialsId?: string;
+  institutionName?: string;
   updatedAt?: number;
 };
 
+type NormalizedProviderAccount = ReturnType<typeof normalizeTinkAccounts>["accounts"][number];
+
+type UpsertProviderAccountsResult = {
+  createdCount: number;
+  updatedCount: number;
+  upsertedAccounts: Array<{ providerAccountId: string; accountId: string }>;
+};
+
+class TinkReconnectRequiredError extends Error {
+  constructor(public readonly state: AggregatedCredentialState) {
+    super(`Tink credential requires reconnect: ${state.code ?? "unknown"}`);
+    this.name = "TinkReconnectRequiredError";
+  }
+}
+
 const tinkLinkConnectMoreAccountsBaseUrl =
   "https://link.tink.com/1.0/transactions/connect-more-accounts";
+
+const tinkLinkExtendConsentBaseUrl =
+  "https://link.tink.com/1.0/transactions/extend-consent";
+
+const tinkLinkUpdateConsentBaseUrl =
+  "https://link.tink.com/1.0/transactions/update-consent";
 
 export async function registerTinkRoutes(app: FastifyInstance) {
   app.get("/integrations/tink/status", async (request, reply) => {
@@ -505,7 +539,27 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     try {
       const { accounts, skippedCount, fetchedCount, result } = await withTinkAccessToken(
         connection.tokenRef,
-        async (accessToken) => {
+        async (accessToken, tokens) => {
+          const credentialDiagnostics = await getTinkCredentialDiagnostics(
+            accessToken,
+            tokens.externalCredentialId,
+            request.log
+          );
+          if (credentialDiagnostics.credentials) {
+            const aggregated = aggregateCredentialStates(credentialDiagnostics.credentials);
+            if (aggregated.kind === "reconnect_required") {
+              request.log.warn(
+                {
+                  provider: "tink",
+                  errorCode: aggregated.code,
+                  credentialId: aggregated.credentialId
+                },
+                "tink account sync gated on credential reconnect_required state"
+              );
+              throw new TinkReconnectRequiredError(aggregated);
+            }
+          }
+
           const tinkAccounts = await listTinkAccounts(accessToken);
           const normalized = normalizeTinkAccounts(tinkAccounts);
           const upsert = (await convex.mutation(convexApi.accounts.apiUpsertProviderAccounts, {
@@ -513,7 +567,13 @@ export async function registerTinkRoutes(app: FastifyInstance) {
             clerkUserId: userId,
             provider: "tink",
             accounts: normalized.accounts
-          })) as { createdCount: number; updatedCount: number };
+          })) as UpsertProviderAccountsResult;
+          await persistBalanceSnapshots(
+            convex,
+            normalized.accounts,
+            upsert.upsertedAccounts,
+            request.log
+          );
 
           return {
             accounts: normalized.accounts,
@@ -530,9 +590,30 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         fetchedCount,
         importedCount: accounts.length,
         skippedCount,
-        ...result
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount
       };
     } catch (error) {
+      if (error instanceof TinkReconnectRequiredError) {
+        await convex
+          .mutation(convexApi.providerConnections.apiMarkConnectionReconnectRequired, {
+            apiSecret: config.apiServiceSecret,
+            clerkUserId: userId,
+            provider: "tink",
+            errorCode: error.state.code ?? "RECONNECT_REQUIRED",
+            errorMessage: error.message,
+            credentialId: error.state.credentialId
+          })
+          .catch(() => undefined);
+
+        return reply.code(409).send({
+          error: "reconnect_required",
+          errorCode: error.state.code,
+          credentialId: error.state.credentialId,
+          message: "Tink credentials need to be re-authorized before syncing."
+        });
+      }
+
       await convex
         .mutation(convexApi.providerConnections.apiMarkSyncStatus, {
           apiSecret: config.apiServiceSecret,
@@ -593,6 +674,20 @@ export async function registerTinkRoutes(app: FastifyInstance) {
             tokens.externalCredentialId,
             request.log
           );
+          if (credentialDiagnostics.credentials) {
+            const aggregated = aggregateCredentialStates(credentialDiagnostics.credentials);
+            if (aggregated.kind === "reconnect_required") {
+              request.log.warn(
+                {
+                  provider: "tink",
+                  errorCode: aggregated.code,
+                  credentialId: aggregated.credentialId
+                },
+                "tink sync gated on credential reconnect_required state"
+              );
+              throw new TinkReconnectRequiredError(aggregated);
+            }
+          }
           const tinkAccounts = await listTinkAccounts(accessToken);
           const accountSync = normalizeTinkAccounts(tinkAccounts);
           const accountResult = (await convex.mutation(
@@ -603,7 +698,22 @@ export async function registerTinkRoutes(app: FastifyInstance) {
               provider: "tink",
               accounts: accountSync.accounts
             }
-          )) as { createdCount: number; updatedCount: number };
+          )) as UpsertProviderAccountsResult;
+          await persistBalanceSnapshots(
+            convex,
+            accountSync.accounts,
+            accountResult.upsertedAccounts,
+            request.log
+          );
+          await captureProviderConsentAndCredentials(
+            convex,
+            accessToken,
+            userId,
+            tokens.externalCredentialId,
+            credentialDiagnostics.rawCredentials ?? [],
+            accountSync.accounts,
+            request.log
+          );
           const tinkTransactions = await listTinkTransactions(accessToken, {});
           const transactionSync = normalizeTinkTransactions(
             tinkTransactions,
@@ -618,7 +728,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
               provider: "tink",
               transactions: transactionSync.transactions
             }
-          )) as { imported: number; skipped: number };
+          )) as { imported: number; updated: number; skipped: number };
 
           return {
             grantedScopes,
@@ -693,6 +803,26 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         }
       };
     } catch (error) {
+      if (error instanceof TinkReconnectRequiredError) {
+        await convex
+          .mutation(convexApi.providerConnections.apiMarkConnectionReconnectRequired, {
+            apiSecret: config.apiServiceSecret,
+            clerkUserId: userId,
+            provider: "tink",
+            errorCode: error.state.code ?? "RECONNECT_REQUIRED",
+            errorMessage: error.message,
+            credentialId: error.state.credentialId
+          })
+          .catch(() => undefined);
+
+        return reply.code(409).send({
+          error: "reconnect_required",
+          errorCode: error.state.code,
+          credentialId: error.state.credentialId,
+          message: "Tink credentials need to be re-authorized before syncing."
+        });
+      }
+
       await convex
         .mutation(convexApi.providerConnections.apiMarkSyncStatus, {
           apiSecret: config.apiServiceSecret,
@@ -751,7 +881,27 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       const fxSnapshot = await resolveFxSnapshot(userId, request.log);
       const outcome = await withTinkAccessToken(
         connection.tokenRef,
-        async (accessToken) => {
+        async (accessToken, tokens) => {
+          const credentialDiagnostics = await getTinkCredentialDiagnostics(
+            accessToken,
+            tokens.externalCredentialId,
+            request.log
+          );
+          if (credentialDiagnostics.credentials) {
+            const aggregated = aggregateCredentialStates(credentialDiagnostics.credentials);
+            if (aggregated.kind === "reconnect_required") {
+              request.log.warn(
+                {
+                  provider: "tink",
+                  errorCode: aggregated.code,
+                  credentialId: aggregated.credentialId
+                },
+                "tink transaction sync gated on credential reconnect_required state"
+              );
+              throw new TinkReconnectRequiredError(aggregated);
+            }
+          }
+
           const tinkTransactions = await listTinkTransactions(accessToken, {
             from: request.body?.from,
             to: request.body?.to
@@ -769,7 +919,7 @@ export async function registerTinkRoutes(app: FastifyInstance) {
               provider: "tink",
               transactions
             }
-          )) as { imported: number; skipped: number };
+          )) as { imported: number; updated: number; skipped: number };
 
           return {
             tinkTransactions,
@@ -790,6 +940,26 @@ export async function registerTinkRoutes(app: FastifyInstance) {
         skippedDuringImportCount: outcome.result.skipped
       };
     } catch (error) {
+      if (error instanceof TinkReconnectRequiredError) {
+        await convex
+          .mutation(convexApi.providerConnections.apiMarkConnectionReconnectRequired, {
+            apiSecret: config.apiServiceSecret,
+            clerkUserId: userId,
+            provider: "tink",
+            errorCode: error.state.code ?? "RECONNECT_REQUIRED",
+            errorMessage: error.message,
+            credentialId: error.state.credentialId
+          })
+          .catch(() => undefined);
+
+        return reply.code(409).send({
+          error: "reconnect_required",
+          errorCode: error.state.code,
+          credentialId: error.state.credentialId,
+          message: "Tink credentials need to be re-authorized before syncing."
+        });
+      }
+
       await convex
         .mutation(convexApi.providerConnections.apiMarkSyncStatus, {
           apiSecret: config.apiServiceSecret,
@@ -806,6 +976,247 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  app.get<{ Querystring: { credentialsId?: string } }>(
+    "/integrations/tink/extend-consent",
+    async (request, reply) => {
+      const userId = requireUserId(request, reply);
+
+      if (!userId) {
+        return reply;
+      }
+
+      if (
+        !config.tinkClientId ||
+        !config.tinkRedirectUri ||
+        !config.oauthStateSecret ||
+        !config.apiServiceSecret
+      ) {
+        return sendNotConfigured(
+          reply,
+          "Tink",
+          getMissingEnvDetail([
+            "TINK_CLIENT_ID",
+            "TINK_REDIRECT_URI",
+            "OAUTH_STATE_SECRET",
+            "API_SERVICE_SECRET"
+          ])
+        );
+      }
+
+      const convex = getConvexClient();
+      if (!convex) {
+        return sendNotConfigured(reply, "Convex");
+      }
+
+      const connection = (await convex.query(
+        convexApi.providerConnections.apiGetConnectionForUser,
+        {
+          apiSecret: config.apiServiceSecret,
+          clerkUserId: userId,
+          provider: "tink"
+        }
+      )) as ConvexProviderConnection | null;
+
+      if (!connection) {
+        return reply.code(409).send({
+          error: "not_connected",
+          message: "Connect Tink before extending consent."
+        });
+      }
+
+      const resolved = await resolveCredentialsIdForUser(
+        convex,
+        userId,
+        request.query.credentialsId,
+        connection.credentialsId
+      );
+      if (!resolved.credentialsId) {
+        return reply.code(409).send({
+          error: resolved.reason === "not_owned" ? "not_owned" : "no_credentials",
+          message:
+            resolved.reason === "not_owned"
+              ? "credentialsId does not belong to this user."
+              : "Connect Tink and complete a sync before extending consent."
+        });
+      }
+
+      const state = createTinkState(config.oauthStateSecret, {
+        tinkUserId: connection.externalUserId,
+        clerkUserId: userId
+      });
+
+      const url = new URL(tinkLinkExtendConsentBaseUrl);
+      url.searchParams.set("client_id", config.tinkClientId);
+      url.searchParams.set("redirect_uri", config.tinkRedirectUri);
+      url.searchParams.set("market", config.tinkMarket);
+      url.searchParams.set("locale", config.tinkLocale);
+      url.searchParams.set("credentials_id", resolved.credentialsId);
+      url.searchParams.set("state", state);
+      if (config.tinkTestMode) {
+        url.searchParams.set("test", "true");
+      }
+
+      request.log.info(
+        {
+          provider: "tink",
+          credentialsId: resolved.credentialsId,
+          requestedCredentialsId: request.query.credentialsId,
+          consentExpiresAt: connection.consentExpiresAt,
+          linkUrl: sanitizeTinkLinkUrl(url)
+        },
+        "tink extend-consent url built"
+      );
+
+      return {
+        provider: "tink",
+        credentialsId: resolved.credentialsId,
+        consentExpiresAt: connection.consentExpiresAt,
+        url: url.toString()
+      };
+    }
+  );
+
+  app.post<{ Body: { credentialsId?: string } }>(
+    "/integrations/tink/refresh-credentials",
+    async (request, reply) => {
+    const userId = requireUserId(request, reply);
+
+    if (!userId) {
+      return reply;
+    }
+
+    if (
+      !config.tinkClientId ||
+      !config.tinkRedirectUri ||
+      !config.oauthStateSecret ||
+      !config.apiServiceSecret ||
+      !config.tokenEncryptionKey
+    ) {
+      return sendNotConfigured(
+        reply,
+        "Tink",
+        getMissingEnvDetail([
+          "TINK_CLIENT_ID",
+          "TINK_REDIRECT_URI",
+          "OAUTH_STATE_SECRET",
+          "API_SERVICE_SECRET",
+          "TOKEN_ENCRYPTION_KEY"
+        ])
+      );
+    }
+
+    const convex = getConvexClient();
+    if (!convex) {
+      return sendNotConfigured(reply, "Convex");
+    }
+
+    const connection = (await convex.query(
+      convexApi.providerConnections.apiGetConnectionForUser,
+      {
+        apiSecret: config.apiServiceSecret,
+        clerkUserId: userId,
+        provider: "tink"
+      }
+    )) as ConvexProviderConnection | null;
+
+    if (!connection || connection.status !== "connected" || !connection.tokenRef) {
+      return reply.code(409).send({
+        error: "not_connected",
+        message: "Connect Tink before refreshing credentials."
+      });
+    }
+
+    const resolved = await resolveCredentialsIdForUser(
+      convex,
+      userId,
+      request.body?.credentialsId,
+      connection.credentialsId
+    );
+    if (!resolved.credentialsId) {
+      return reply.code(409).send({
+        error: resolved.reason === "not_owned" ? "not_owned" : "no_credentials",
+        message:
+          resolved.reason === "not_owned"
+            ? "credentialsId does not belong to this user."
+            : "Complete a Tink sync once before refreshing credentials."
+      });
+    }
+    const credentialsId = resolved.credentialsId;
+
+    try {
+      const outcome = await withTinkAccessToken(
+        connection.tokenRef,
+        async (accessToken) => {
+          await refreshTinkCredentials(accessToken, credentialsId);
+          return { method: "server_refresh" as const };
+        },
+        request.log
+      );
+
+      request.log.info(
+        { provider: "tink", credentialsId, method: outcome.method },
+        "tink credentials refresh requested server-side"
+      );
+
+      return {
+        provider: "tink",
+        credentialsId,
+        method: outcome.method
+      };
+    } catch (error) {
+      if (error instanceof TinkRefreshRequiresUserError) {
+        const state = createTinkState(config.oauthStateSecret, {
+          tinkUserId: connection.externalUserId,
+          clerkUserId: userId
+        });
+        const url = new URL(tinkLinkUpdateConsentBaseUrl);
+        url.searchParams.set("client_id", config.tinkClientId);
+        url.searchParams.set("redirect_uri", config.tinkRedirectUri);
+        url.searchParams.set("market", config.tinkMarket);
+        url.searchParams.set("locale", config.tinkLocale);
+        url.searchParams.set("credentials_id", credentialsId);
+        url.searchParams.set("state", state);
+        if (config.tinkTestMode) {
+          url.searchParams.set("test", "true");
+        }
+
+        request.log.info(
+          {
+            provider: "tink",
+            credentialsId,
+            errorCode: error.errorCode,
+            method: "link",
+            linkUrl: sanitizeTinkLinkUrl(url)
+          },
+          "tink credentials refresh requires user; returning update-consent link"
+        );
+
+        return {
+          provider: "tink",
+          credentialsId,
+          method: "link" as const,
+          errorCode: error.errorCode,
+          url: url.toString()
+        };
+      }
+
+      request.log.warn(
+        {
+          provider: "tink",
+          credentialsId,
+          errorMessage: error instanceof Error ? error.message : "refresh failed"
+        },
+        "tink credentials refresh failed"
+      );
+
+      return reply.code(502).send({
+        error: "refresh_failed",
+        message: error instanceof Error ? error.message : "Tink credentials refresh failed"
+      });
+    }
+  }
+  );
 
   app.post("/integrations/tink/disconnect", async (request, reply) => {
     const userId = requireUserId(request, reply);
@@ -886,23 +1297,19 @@ async function getTinkCredentialDiagnostics(
 ) {
   try {
     const credentials = await listTinkCredentials(accessToken);
-    const matchingCredential = expectedCredentialId
-      ? credentials.find((credential) => credential.id === expectedCredentialId)
-      : undefined;
-    const diagnosticCredentials = (matchingCredential ? [matchingCredential] : credentials).map(
-      (credential) => ({
-        id: credential.id,
-        providerName: credential.providerName,
-        status: credential.status,
-        statusUpdated: credential.statusUpdated,
-        statusPayload: credential.statusPayload
-      })
-    );
+    const diagnosticCredentials = credentials.map((credential) => ({
+      id: credential.id,
+      providerName: credential.providerName,
+      status: credential.status,
+      statusUpdated: credential.statusUpdated,
+      statusPayload: credential.statusPayload
+    }));
 
     return {
       expectedCredentialId,
       count: credentials.length,
-      credentials: diagnosticCredentials
+      credentials: diagnosticCredentials,
+      rawCredentials: credentials
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Tink credential diagnostics failed";
@@ -940,6 +1347,15 @@ function normalizeTinkAccounts(accounts: TinkAccount[]) {
       continue;
     }
 
+    const availableBalance = parseTinkAmountValue(account.balances?.available);
+    const holderName =
+      account.holderName?.trim() ||
+      account.holders?.find((holder) => holder.name?.trim())?.name?.trim() ||
+      undefined;
+    const { iban, bban } = extractAccountIdentifiers(account.identifiers);
+    const credentialsId =
+      account.credentialsId?.trim() || account.credentials?.id?.trim() || undefined;
+
     normalized.push({
       providerAccountId: account.id,
       bankKey: account.financialInstitutionName
@@ -951,11 +1367,48 @@ function normalizeTinkAccounts(accounts: TinkAccount[]) {
       currentBalance:
         parseTinkAmountValue(account.balances?.booked) ??
         parseTinkAmountValue(account.balance) ??
-        0
+        0,
+      availableBalance: availableBalance ?? undefined,
+      institutionName: account.financialInstitutionName?.trim() || undefined,
+      holderName,
+      iban,
+      bban,
+      credentialsId
     });
   }
 
   return { accounts: normalized, skippedCount };
+}
+
+function extractAccountIdentifiers(identifiers: TinkAccount["identifiers"]) {
+  let iban: string | undefined;
+  let bban: string | undefined;
+
+  if (!identifiers) {
+    return { iban, bban };
+  }
+
+  for (const identifier of identifiers) {
+    const scheme = identifier.scheme?.toLowerCase() ?? identifier.type?.toLowerCase();
+    const ibanCandidate =
+      typeof identifier.iban === "string"
+        ? identifier.iban
+        : identifier.iban?.iban;
+    const bbanCandidate =
+      typeof identifier.bban === "string"
+        ? identifier.bban
+        : identifier.bban?.bban;
+
+    if (!iban && (scheme === "iban" || ibanCandidate)) {
+      iban = ibanCandidate ?? identifier.value ?? undefined;
+    }
+
+    if (!bban && (scheme === "bban" || bbanCandidate)) {
+      bban = bbanCandidate ?? identifier.value ?? undefined;
+    }
+  }
+
+  return { iban: iban?.trim() || undefined, bban: bban?.trim() || undefined };
 }
 
 function normalizeCurrency(value: string | undefined): SupportedCurrency | null {
@@ -1037,7 +1490,6 @@ function normalizeTinkTransactions(
     if (amount === null) skipReasonsForThis.push("unparseable_amount");
     if (!currency) skipReasonsForThis.push(`unsupported_currency:${rawCurrency ?? "none"}`);
     if (postedAt === null) skipReasonsForThis.push("unparseable_date");
-    if (transaction.status?.toLowerCase() === "pending") skipReasonsForThis.push("status_pending");
 
     if (skipReasonsForThis.length > 0) {
       skippedCount += 1;
@@ -1058,6 +1510,8 @@ function normalizeTinkTransactions(
     }
 
     const merchant = transaction.merchantInformation?.merchantName ?? transaction.merchantName;
+    const status: "booked" | "pending" =
+      transaction.status?.toLowerCase() === "pending" ? "pending" : "booked";
 
     normalized.push({
       providerAccountId,
@@ -1072,9 +1526,9 @@ function normalizeTinkTransactions(
       type: normalizeTransactionType(amount, transaction.category),
       isRecurring: false,
       isExcludedFromReports: false,
+      status,
       dedupeHash: createProviderDedupeHash({
         providerAccountId,
-        providerTransactionId: transaction.id,
         postedAt,
         amount,
         currency,
@@ -1131,6 +1585,167 @@ function defaultEurStaticSnapshot(): FxSnapshot {
   };
 }
 
+async function persistBalanceSnapshots(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  normalizedAccounts: NormalizedProviderAccount[],
+  upsertedAccounts: UpsertProviderAccountsResult["upsertedAccounts"],
+  log: FastifyBaseLogger
+) {
+  if (!config.apiServiceSecret) {
+    return;
+  }
+
+  const snapshotDate = new Date().toISOString().slice(0, 10);
+  const accountIdByProvider = new Map(
+    upsertedAccounts.map((entry) => [entry.providerAccountId, entry.accountId])
+  );
+
+  for (const account of normalizedAccounts) {
+    const accountId = accountIdByProvider.get(account.providerAccountId);
+    if (!accountId) {
+      continue;
+    }
+
+    try {
+      await convex.mutation(convexApi.accounts.apiInsertBalanceSnapshot, {
+        apiSecret: config.apiServiceSecret,
+        accountId,
+        snapshotDate,
+        bookedBalance: account.currentBalance,
+        availableBalance: account.availableBalance,
+        currency: account.currency
+      });
+    } catch (error) {
+      log.warn(
+        {
+          provider: "tink",
+          providerAccountId: account.providerAccountId,
+          errorMessage: error instanceof Error ? error.message : "balance snapshot failed"
+        },
+        "tink balance snapshot persist failed"
+      );
+    }
+  }
+}
+
+async function resolveCredentialsIdForUser(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  clerkUserId: string,
+  requested: string | undefined,
+  fallback: string | undefined
+): Promise<{ credentialsId: string | null; reason?: "not_owned" }> {
+  if (requested) {
+    if (!config.apiServiceSecret) {
+      return { credentialsId: null };
+    }
+
+    const ownership = (await convex.query(
+      convexApi.tinkCredentials.apiGetCredentialOwnership,
+      {
+        apiSecret: config.apiServiceSecret,
+        clerkUserId,
+        credentialsId: requested
+      }
+    )) as { owned: boolean } | null;
+
+    if (!ownership?.owned) {
+      return { credentialsId: null, reason: "not_owned" };
+    }
+
+    return { credentialsId: requested };
+  }
+
+  return { credentialsId: fallback ?? null };
+}
+
+async function captureProviderConsentAndCredentials(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  accessToken: string,
+  clerkUserId: string,
+  preferredCredentialsId: string | undefined,
+  credentials: Awaited<ReturnType<typeof listTinkCredentials>>,
+  normalizedAccounts: NormalizedProviderAccount[],
+  log: FastifyBaseLogger
+) {
+  if (!config.apiServiceSecret) {
+    return;
+  }
+
+  try {
+    const consents = await listTinkProviderConsents(accessToken);
+
+    const primary = pickPrimaryProviderConsent(consents, preferredCredentialsId);
+    const accountsByCredentialsId = new Map<string, NormalizedProviderAccount[]>();
+    for (const account of normalizedAccounts) {
+      if (!account.credentialsId) continue;
+      const list = accountsByCredentialsId.get(account.credentialsId) ?? [];
+      list.push(account);
+      accountsByCredentialsId.set(account.credentialsId, list);
+    }
+    const fallbackInstitutionName =
+      normalizedAccounts.find((account) => account.institutionName)?.institutionName;
+
+    if (primary) {
+      await convex.mutation(convexApi.providerConnections.apiUpdateConnectionConsent, {
+        apiSecret: config.apiServiceSecret,
+        clerkUserId,
+        provider: "tink",
+        consentExpiresAt: primary.consentExpiresAt,
+        credentialsId: primary.credentialsId,
+        institutionName: fallbackInstitutionName
+      });
+    }
+
+    const credentialRows = buildTinkCredentialRows(credentials, consents).map((row) => ({
+      ...row,
+      institutionName:
+        accountsByCredentialsId.get(row.credentialsId)?.find((a) => a.institutionName)
+          ?.institutionName ??
+        (row.credentialsId === primary?.credentialsId ? fallbackInstitutionName : undefined)
+    }));
+
+    if (credentialRows.length > 0) {
+      const upsertResult = (await convex.mutation(
+        convexApi.tinkCredentials.apiUpsertTinkCredentials,
+        {
+          apiSecret: config.apiServiceSecret,
+          clerkUserId,
+          provider: "tink",
+          credentials: credentialRows
+        }
+      )) as { upsertedCount: number; archivedCount: number };
+
+      log.info(
+        {
+          provider: "tink",
+          credentialCount: credentialRows.length,
+          upsertedCount: upsertResult.upsertedCount,
+          archivedCount: upsertResult.archivedCount
+        },
+        "tink credential snapshot upserted"
+      );
+    }
+
+    log.info(
+      {
+        provider: "tink",
+        primaryCredentialsId: primary?.credentialsId,
+        consentExpiresAt: primary?.consentExpiresAt,
+        consentCount: consents.length
+      },
+      "tink provider consent captured"
+    );
+  } catch (error) {
+    log.warn(
+      {
+        provider: "tink",
+        errorMessage: error instanceof Error ? error.message : "consent capture failed"
+      },
+      "tink provider consent and credential capture failed"
+    );
+  }
+}
+
 async function resolveFxSnapshot(
   clerkUserId: string,
   log: FastifyBaseLogger
@@ -1165,7 +1780,6 @@ async function resolveFxSnapshot(
 
 function createProviderDedupeHash(input: {
   providerAccountId: string;
-  providerTransactionId: string;
   postedAt: number;
   amount: number;
   currency: SupportedCurrency;
@@ -1177,7 +1791,6 @@ function createProviderDedupeHash(input: {
   return [
     "tink",
     input.providerAccountId,
-    input.providerTransactionId,
     day,
     input.amount.toFixed(2),
     input.currency,
