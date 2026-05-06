@@ -1,5 +1,15 @@
 import { config } from "./config.js";
 
+export class TinkAuthError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "TinkAuthError";
+    this.status = status;
+  }
+}
+
 export type TinkTokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -83,6 +93,47 @@ type TinkAmount = {
   value?: string | number | TinkScaledValue;
   currencyCode?: string;
 };
+
+export async function refreshTinkAccessToken(input: { refreshToken: string }) {
+  if (!config.tinkClientId || !config.tinkClientSecret) {
+    throw new Error("Tink is not configured");
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken,
+    client_id: config.tinkClientId,
+    client_secret: config.tinkClientSecret
+  });
+
+  const response = await fetch(`${config.tinkApiBaseUrl}/api/v1/oauth/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401) {
+      throw new TinkAuthError(
+        getTinkErrorMessage(payload, `Tink refresh failed with ${response.status}`),
+        response.status
+      );
+    }
+
+    throw new Error(getTinkErrorMessage(payload, `Tink refresh failed with ${response.status}`));
+  }
+
+  if (!isTinkTokenResponse(payload)) {
+    throw new Error("Tink refresh returned an invalid response");
+  }
+
+  return payload;
+}
 
 export async function exchangeTinkAuthorizationCode(code: string) {
   if (!config.tinkClientId || !config.tinkClientSecret || !config.tinkRedirectUri) {
@@ -226,6 +277,10 @@ export async function listTinkAccounts(accessToken: string) {
         ? String(payload.errorMessage)
         : `Tink account sync failed with ${response.status}`;
 
+    if (response.status === 401) {
+      throw new TinkAuthError(message, response.status);
+    }
+
     throw new Error(message);
   }
 
@@ -263,6 +318,10 @@ export async function listTinkTransactions(accessToken: string, params: { from?:
         ? String(payload.errorMessage)
         : `Tink transaction sync failed with ${response.status}`;
 
+    if (response.status === 401) {
+      throw new TinkAuthError(message, response.status);
+    }
+
     throw new Error(message);
   }
 
@@ -289,6 +348,10 @@ export async function listTinkCredentials(accessToken: string) {
       payload && typeof payload === "object" && "errorMessage" in payload
         ? String(payload.errorMessage)
         : `Tink credentials check failed with ${response.status}`;
+
+    if (response.status === 401) {
+      throw new TinkAuthError(message, response.status);
+    }
 
     throw new Error(message);
   }

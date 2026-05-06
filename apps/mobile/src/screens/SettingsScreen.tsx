@@ -207,21 +207,49 @@ function AuthenticatedBankConnectionSection({
             description={bankConnection.detail}
             left={(props) => <List.Icon {...props} icon={bankConnection.icon} />}
           />
+          {bankConnection.needsReconnect ? (
+            <StateCard
+              title="Reconnect required"
+              detail={
+                bankConnection.reconnectReason ??
+                "Tink credentials need to be re-authorized to keep syncing."
+              }
+              tone="warning"
+            />
+          ) : null}
           {bankConnection.error ? (
             <StateCard title="Bank connection action failed" detail={bankConnection.error} tone="error" />
           ) : null}
           <View style={styles.actionRow}>
             <Button
               disabled={bankConnection.isBusy}
-              icon={bankConnection.isConnected ? "refresh" : "bank-plus"}
+              icon={
+                bankConnection.needsReconnect
+                  ? "alert"
+                  : bankConnection.isConnected
+                    ? "refresh"
+                    : "bank-plus"
+              }
               loading={bankConnection.action === "connect"}
-              mode={bankConnection.isConnected ? "outlined" : "contained"}
+              mode={
+                bankConnection.needsReconnect || !bankConnection.isConnected
+                  ? "contained"
+                  : "outlined"
+              }
               onPress={bankConnection.connect}
             >
-              {bankConnection.isConnected ? "Reconnect" : "Connect"}
+              {bankConnection.needsReconnect
+                ? "Reconnect now"
+                : bankConnection.isConnected
+                  ? "Reconnect"
+                  : "Connect"}
             </Button>
             <Button
-              disabled={!bankConnection.isConnected || bankConnection.isBusy}
+              disabled={
+                !bankConnection.isConnected ||
+                bankConnection.needsReconnect ||
+                bankConnection.isBusy
+              }
               icon="sync"
               loading={bankConnection.action === "sync"}
               mode="contained"
@@ -309,6 +337,8 @@ function useBankConnection(
   const [action, setAction] = useState<BankAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [reconnectReason, setReconnectReason] = useState<string | null>(null);
   const isConfigured = Boolean(apiBaseUrl);
   const getTokenRef = React.useRef(getToken);
 
@@ -371,7 +401,22 @@ function useBankConnection(
 
   const loadStatus = React.useCallback(async () => {
     const status = await request<TinkStatusResponse>("/integrations/tink/status");
-    setIsConnected(status.connected);
+    const isReconnect = status.status === "reconnect_required";
+    setNeedsReconnect(isReconnect);
+    setReconnectReason(isReconnect ? status.lastError ?? null : null);
+
+    setIsConnected(status.connected && !isReconnect);
+
+    if (isReconnect) {
+      setStatusLabel("Reconnect required");
+      setDetail(
+        status.lastError
+          ? `Tink reported an authentication error: ${status.lastError}`
+          : "Tink credentials need to be re-authorized to keep syncing."
+      );
+      return;
+    }
+
     setStatusLabel(status.connected ? "Connected" : "Ready");
 
     if (status.connected) {
@@ -424,16 +469,18 @@ function useBankConnection(
   return {
     action,
     error: !isConfigured && isPersisted ? "Set EXPO_PUBLIC_API_URL in .env.local." : error,
-    icon: isConnected ? "bank-check" : "bank-outline",
+    icon: needsReconnect ? "bank-remove" : isConnected ? "bank-check" : "bank-outline",
     isBusy: action !== null,
     isConnected,
+    needsReconnect,
+    reconnectReason,
     statusLabel: isConfigured ? statusLabel : "Not configured",
     detail: getBankConnectionDetail(detail, isPersisted, isConfigured),
     refresh,
     connect: () =>
       run("connect", async () => {
         const response = await request<{ url: string }>("/integrations/tink/link");
-        setStatusLabel("Authorization started");
+        setStatusLabel(needsReconnect ? "Reconnect started" : "Authorization started");
         setIsConnected(false);
         await Linking.openURL(response.url);
       }),
@@ -441,6 +488,8 @@ function useBankConnection(
       run("sync", async () => {
         const result = await request<TinkSyncResponse>("/integrations/tink/sync", { method: "POST" });
         setIsConnected(true);
+        setNeedsReconnect(false);
+        setReconnectReason(null);
         setStatusLabel("Synced");
         setDetail(formatSyncResult(result));
       }),
@@ -448,6 +497,8 @@ function useBankConnection(
       run("disconnect", async () => {
         await request("/integrations/tink/disconnect", { method: "POST" });
         setIsConnected(false);
+        setNeedsReconnect(false);
+        setReconnectReason(null);
         setStatusLabel("Disconnected");
         setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
       })

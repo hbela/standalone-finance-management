@@ -212,6 +212,21 @@ export default defineSchema({
     .index("by_user_id", ["userId"])
     .index("by_user_provider", ["userId", "provider"]),
 
+  providerTokens: defineTable({
+    tokenRef: v.string(),
+    userId: v.id("users"),
+    provider: providerName,
+    ciphertext: v.string(),
+    iv: v.string(),
+    authTag: v.string(),
+    algorithm: v.literal("aes-256-gcm"),
+    version: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_token_ref", ["tokenRef"])
+    .index("by_user_provider", ["userId", "provider"]),
+
   providerConnectionAttempts: defineTable({
     userId: v.id("users"),
     provider: providerName,

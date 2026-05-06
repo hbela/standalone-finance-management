@@ -18,7 +18,6 @@ export type ApiConfig = {
   wiseClientId?: string;
   convexUrl?: string;
   apiServiceSecret?: string;
-  tokenVaultDir: string;
   tokenEncryptionKey?: string;
   tinkClientId?: string;
   tinkClientSecret?: string;
@@ -35,6 +34,8 @@ export type ApiConfig = {
   tinkUseExistingUser: boolean;
   tinkLinkAuthMode: "code" | "token";
   oauthStateSecret?: string;
+  fxProviderUrl: string;
+  fxCacheTtlMs: number;
 };
 
 const wiseEnvironment = (process.env.WISE_ENVIRONMENT ?? "sandbox") as WiseEnvironment;
@@ -57,7 +58,6 @@ export const config: ApiConfig = {
   wiseClientId: process.env.WISE_CLIENT_ID,
   convexUrl: process.env.CONVEX_URL,
   apiServiceSecret: process.env.API_SERVICE_SECRET,
-  tokenVaultDir: process.env.TOKEN_VAULT_DIR ?? ".token-vault",
   tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY,
   tinkClientId: process.env.TINK_CLIENT_ID,
   tinkClientSecret: process.env.TINK_CLIENT_SECRET,
@@ -81,7 +81,11 @@ export const config: ApiConfig = {
   tinkUseInputPrefill: process.env.TINK_USE_INPUT_PREFILL !== "false",
   tinkUseExistingUser: process.env.TINK_USE_EXISTING_USER === "true",
   tinkLinkAuthMode: process.env.TINK_LINK_AUTH_MODE === "token" ? "token" : "code",
-  oauthStateSecret: process.env.OAUTH_STATE_SECRET
+  oauthStateSecret: process.env.OAUTH_STATE_SECRET,
+  fxProviderUrl: process.env.FX_PROVIDER_URL ?? "https://api.frankfurter.dev/v1/latest",
+  fxCacheTtlMs: Number.isFinite(Number(process.env.FX_CACHE_TTL_MS))
+    ? Number(process.env.FX_CACHE_TTL_MS)
+    : 24 * 60 * 60 * 1000
 };
 
 function loadLocalEnv() {

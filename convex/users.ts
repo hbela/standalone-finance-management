@@ -60,3 +60,22 @@ export const upsertCurrent = mutation({
     });
   }
 });
+
+export const apiGetUserBaseCurrency = query({
+  args: {
+    apiSecret: v.string(),
+    clerkUserId: v.string()
+  },
+  handler: async (ctx, args) => {
+    if (!process.env.API_SERVICE_SECRET || args.apiSecret !== process.env.API_SERVICE_SECRET) {
+      throw new Error("Invalid API service secret");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+
+    return user?.baseCurrency ?? null;
+  }
+});

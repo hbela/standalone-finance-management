@@ -16,7 +16,14 @@ import {
   type TinkAccount,
   type TinkTransaction
 } from "../tinkClient.js";
-import { deleteProviderTokens, readProviderTokens, storeProviderTokens } from "../tokenVault.js";
+import { deleteProviderTokens, storeProviderTokens } from "../tokenVault.js";
+import { withTinkAccessToken } from "../tinkSession.js";
+import {
+  getFxSnapshot,
+  toBaseCurrencyAmount,
+  type FxBaseCurrency,
+  type FxSnapshot
+} from "../fxRates.js";
 
 type SupportedCurrency = "HUF" | "EUR" | "USD" | "GBP";
 type AccountType = "checking" | "savings" | "credit" | "loan" | "mortgage";
@@ -201,7 +208,10 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       }
     }
 
-    const state = createTinkState(config.oauthStateSecret, { tinkUserId });
+    const state = createTinkState(config.oauthStateSecret, {
+      tinkUserId,
+      clerkUserId: userId
+    });
     const stateHash = hashOAuthState(state);
     await convex.mutation(convexApi.providerConnections.apiRecordConnectionStarted, {
       apiSecret: config.apiServiceSecret,
@@ -384,17 +394,24 @@ export async function registerTinkRoutes(app: FastifyInstance) {
       const scopes = tokenResponse.scope
         ? tokenResponse.scope.split(/[,\s]+/).filter(Boolean)
         : config.tinkScopes;
-      const tokenRef = await storeProviderTokens({
-        provider: "tink",
-        accessToken: tokenResponse.access_token,
-        refreshToken: tokenResponse.refresh_token,
-        tokenType: tokenResponse.token_type,
-        scope: tokenResponse.scope,
-        expiresAt,
-        externalUserId: tokenResponse.user_id,
-        externalCredentialId: credentialId,
-        receivedAt: Date.now()
-      });
+      if (!state.clerkUserId) {
+        throw new Error("OAuth state is missing clerkUserId");
+      }
+
+      const tokenRef = await storeProviderTokens(
+        {
+          provider: "tink",
+          accessToken: tokenResponse.access_token,
+          refreshToken: tokenResponse.refresh_token,
+          tokenType: tokenResponse.token_type,
+          scope: tokenResponse.scope,
+          expiresAt,
+          externalUserId: tokenResponse.user_id,
+          externalCredentialId: credentialId,
+          receivedAt: Date.now()
+        },
+        { clerkUserId: state.clerkUserId }
+      );
 
       request.log.info(
         {
@@ -486,19 +503,31 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     try {
-      const tokens = await readProviderTokens(connection.tokenRef);
-      const tinkAccounts = await listTinkAccounts(tokens.accessToken);
-      const { accounts, skippedCount } = normalizeTinkAccounts(tinkAccounts);
-      const result = (await convex.mutation(convexApi.accounts.apiUpsertProviderAccounts, {
-        apiSecret: config.apiServiceSecret,
-        clerkUserId: userId,
-        provider: "tink",
-        accounts
-      })) as { createdCount: number; updatedCount: number };
+      const { accounts, skippedCount, fetchedCount, result } = await withTinkAccessToken(
+        connection.tokenRef,
+        async (accessToken) => {
+          const tinkAccounts = await listTinkAccounts(accessToken);
+          const normalized = normalizeTinkAccounts(tinkAccounts);
+          const upsert = (await convex.mutation(convexApi.accounts.apiUpsertProviderAccounts, {
+            apiSecret: config.apiServiceSecret,
+            clerkUserId: userId,
+            provider: "tink",
+            accounts: normalized.accounts
+          })) as { createdCount: number; updatedCount: number };
+
+          return {
+            accounts: normalized.accounts,
+            skippedCount: normalized.skippedCount,
+            fetchedCount: tinkAccounts.length,
+            result: upsert
+          };
+        },
+        request.log
+      );
 
       return {
         provider: "tink",
-        fetchedCount: tinkAccounts.length,
+        fetchedCount,
         importedCount: accounts.length,
         skippedCount,
         ...result
@@ -554,35 +583,67 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     try {
-      const tokens = await readProviderTokens(connection.tokenRef);
-      const grantedScopes = tokens.scope?.split(/[,\s]+/).filter(Boolean) ?? [];
-      const credentialDiagnostics = await getTinkCredentialDiagnostics(
-        tokens.accessToken,
-        tokens.externalCredentialId,
+      const fxSnapshot = await resolveFxSnapshot(userId, request.log);
+      const summary = await withTinkAccessToken(
+        connection.tokenRef,
+        async (accessToken, tokens) => {
+          const grantedScopes = tokens.scope?.split(/[,\s]+/).filter(Boolean) ?? [];
+          const credentialDiagnostics = await getTinkCredentialDiagnostics(
+            accessToken,
+            tokens.externalCredentialId,
+            request.log
+          );
+          const tinkAccounts = await listTinkAccounts(accessToken);
+          const accountSync = normalizeTinkAccounts(tinkAccounts);
+          const accountResult = (await convex.mutation(
+            convexApi.accounts.apiUpsertProviderAccounts,
+            {
+              apiSecret: config.apiServiceSecret,
+              clerkUserId: userId,
+              provider: "tink",
+              accounts: accountSync.accounts
+            }
+          )) as { createdCount: number; updatedCount: number };
+          const tinkTransactions = await listTinkTransactions(accessToken, {});
+          const transactionSync = normalizeTinkTransactions(
+            tinkTransactions,
+            request.log,
+            fxSnapshot
+          );
+          const transactionResult = (await convex.mutation(
+            convexApi.transactions.apiImportProviderTransactions,
+            {
+              apiSecret: config.apiServiceSecret,
+              clerkUserId: userId,
+              provider: "tink",
+              transactions: transactionSync.transactions
+            }
+          )) as { imported: number; skipped: number };
+
+          return {
+            grantedScopes,
+            credentialDiagnostics,
+            tinkAccounts,
+            accountSync,
+            accountResult,
+            tinkTransactions,
+            transactionSync,
+            transactionResult
+          };
+        },
         request.log
       );
-      const tinkAccounts = await listTinkAccounts(tokens.accessToken);
-      const accountSync = normalizeTinkAccounts(tinkAccounts);
-      const accountResult = (await convex.mutation(
-        convexApi.accounts.apiUpsertProviderAccounts,
-        {
-          apiSecret: config.apiServiceSecret,
-          clerkUserId: userId,
-          provider: "tink",
-          accounts: accountSync.accounts
-        }
-      )) as { createdCount: number; updatedCount: number };
-      const tinkTransactions = await listTinkTransactions(tokens.accessToken, {});
-      const transactionSync = normalizeTinkTransactions(tinkTransactions, request.log);
-      const transactionResult = (await convex.mutation(
-        convexApi.transactions.apiImportProviderTransactions,
-        {
-          apiSecret: config.apiServiceSecret,
-          clerkUserId: userId,
-          provider: "tink",
-          transactions: transactionSync.transactions
-        }
-      )) as { imported: number; skipped: number };
+
+      const {
+        grantedScopes,
+        credentialDiagnostics,
+        tinkAccounts,
+        accountSync,
+        accountResult,
+        tinkTransactions,
+        transactionSync,
+        transactionResult
+      } = summary;
 
       request.log.info(
         {
@@ -605,6 +666,11 @@ export async function registerTinkRoutes(app: FastifyInstance) {
             normalizedCount: transactionSync.transactions.length,
             skippedCount: transactionSync.skippedCount,
             skipReasons: transactionSync.skipReasons
+          },
+          fx: {
+            base: fxSnapshot.base,
+            source: fxSnapshot.source,
+            fetchedAt: fxSnapshot.fetchedAt
           }
         },
         "tink sync fetched data"
@@ -682,32 +748,46 @@ export async function registerTinkRoutes(app: FastifyInstance) {
     }
 
     try {
-      const tokens = await readProviderTokens(connection.tokenRef);
-      const tinkTransactions = await listTinkTransactions(tokens.accessToken, {
-        from: request.body?.from,
-        to: request.body?.to
-      });
-      const { transactions, skippedCount } = normalizeTinkTransactions(
-        tinkTransactions,
+      const fxSnapshot = await resolveFxSnapshot(userId, request.log);
+      const outcome = await withTinkAccessToken(
+        connection.tokenRef,
+        async (accessToken) => {
+          const tinkTransactions = await listTinkTransactions(accessToken, {
+            from: request.body?.from,
+            to: request.body?.to
+          });
+          const { transactions, skippedCount } = normalizeTinkTransactions(
+            tinkTransactions,
+            request.log,
+            fxSnapshot
+          );
+          const result = (await convex.mutation(
+            convexApi.transactions.apiImportProviderTransactions,
+            {
+              apiSecret: config.apiServiceSecret,
+              clerkUserId: userId,
+              provider: "tink",
+              transactions
+            }
+          )) as { imported: number; skipped: number };
+
+          return {
+            tinkTransactions,
+            transactions,
+            skippedCount,
+            result
+          };
+        },
         request.log
       );
-      const result = (await convex.mutation(
-        convexApi.transactions.apiImportProviderTransactions,
-        {
-          apiSecret: config.apiServiceSecret,
-          clerkUserId: userId,
-          provider: "tink",
-          transactions
-        }
-      )) as { imported: number; skipped: number };
 
       return {
         provider: "tink",
-        fetchedCount: tinkTransactions.length,
-        preparedCount: transactions.length,
-        skippedBeforeImportCount: skippedCount,
-        importedCount: result.imported,
-        skippedDuringImportCount: result.skipped
+        fetchedCount: outcome.tinkTransactions.length,
+        preparedCount: outcome.transactions.length,
+        skippedBeforeImportCount: outcome.skippedCount,
+        importedCount: outcome.result.imported,
+        skippedDuringImportCount: outcome.result.skipped
       };
     } catch (error) {
       await convex
@@ -923,7 +1003,12 @@ function slugify(value: string) {
     .replace(/^-|-$/g, "");
 }
 
-function normalizeTinkTransactions(transactions: TinkTransaction[], log?: FastifyBaseLogger) {
+function normalizeTinkTransactions(
+  transactions: TinkTransaction[],
+  log?: FastifyBaseLogger,
+  fx?: FxSnapshot
+) {
+  const fxSnapshot = fx ?? defaultEurStaticSnapshot();
   const normalized = [];
   let skippedCount = 0;
   const skipReasons: Record<string, number> = {};
@@ -980,7 +1065,7 @@ function normalizeTinkTransactions(transactions: TinkTransaction[], log?: Fastif
       postedAt,
       amount,
       currency,
-      baseCurrencyAmount: toBaseCurrency(amount, currency),
+      baseCurrencyAmount: toBaseCurrencyAmount(amount, currency, fxSnapshot),
       description,
       merchant,
       categoryId: transaction.category,
@@ -1037,15 +1122,45 @@ function normalizeTransactionType(amount: number, category: string | undefined):
   return amount < 0 ? "expense" : "income";
 }
 
-function toBaseCurrency(amount: number, currency: SupportedCurrency) {
-  const rates: Record<SupportedCurrency, number> = {
-    EUR: 1,
-    HUF: 0.00254,
-    USD: 0.93,
-    GBP: 1.16
+function defaultEurStaticSnapshot(): FxSnapshot {
+  return {
+    base: "EUR",
+    rates: { EUR: 1, HUF: 1 / 0.00254, USD: 1 / 0.93, GBP: 1 / 1.16 },
+    source: "static",
+    fetchedAt: Date.now()
   };
+}
 
-  return amount * rates[currency];
+async function resolveFxSnapshot(
+  clerkUserId: string,
+  log: FastifyBaseLogger
+): Promise<FxSnapshot> {
+  const convex = getConvexClient();
+  if (!convex || !config.apiServiceSecret) {
+    return await getFxSnapshot("EUR", log);
+  }
+
+  let base: FxBaseCurrency = "EUR";
+  try {
+    const result = (await convex.query(convexApi.users.apiGetUserBaseCurrency, {
+      apiSecret: config.apiServiceSecret,
+      clerkUserId
+    })) as FxBaseCurrency | null;
+
+    if (result === "EUR" || result === "HUF" || result === "USD" || result === "GBP") {
+      base = result;
+    }
+  } catch (error) {
+    log.warn(
+      {
+        provider: "tink",
+        errorMessage: error instanceof Error ? error.message : "fx base lookup failed"
+      },
+      "tink fx base currency lookup failed; falling back to EUR"
+    );
+  }
+
+  return await getFxSnapshot(base, log);
 }
 
 function createProviderDedupeHash(input: {
