@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.turbo
+**/.expo
+**/.expo-shared
+**/coverage
+**/.env
+**/.env.*
+**/.token-vault
+**/*.log
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+docs
+README.md
