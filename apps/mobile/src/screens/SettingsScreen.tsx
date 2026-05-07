@@ -121,6 +121,8 @@ export function SettingsScreen({
         <LocalBankConnectionSection />
       )}
 
+      {isPersisted ? <AuthenticatedWiseConnectionSection /> : null}
+
       <SectionTitle title="Categories" action={`${categories.length} active`} />
       <Card mode="contained" style={styles.card}>
         <Card.Content style={styles.content}>
@@ -409,6 +411,183 @@ function LocalBankConnectionSection() {
           description="Sign in with Clerk and Convex to connect a bank."
           left={(props) => <List.Icon {...props} icon="bank-outline" />}
         />
+      </Card>
+    </>
+  );
+}
+
+type WiseStatusResponse = {
+  connected: boolean;
+  configured: boolean;
+  environment: string;
+  authMode?: "personal_token" | "oauth";
+  message?: string;
+  connection?: {
+    status: string;
+    lastSyncedAt?: number;
+    lastSyncStatus?: string;
+    lastError?: string;
+  } | null;
+};
+
+type WiseSyncResponse = {
+  provider: "wise";
+  profileCount: number;
+  balanceCount: number;
+  accountResult: { createdCount: number; updatedCount: number };
+  transactionResult: { imported: number; updated: number; skipped: number };
+};
+
+type WiseAction = "sync" | "disconnect" | "refresh" | null;
+
+function AuthenticatedWiseConnectionSection() {
+  const { getToken } = useAuth();
+  const [status, setStatus] = useState<WiseStatusResponse | null>(null);
+  const [action, setAction] = useState<WiseAction>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const isConfigured = Boolean(apiBaseUrl);
+
+  const wiseRequest = React.useCallback(
+    async <T,>(path: string, init?: RequestInit) => {
+      if (!apiBaseUrl) {
+        throw new Error("Set EXPO_PUBLIC_API_URL to use Wise.");
+      }
+      const token = await getToken();
+      if (!token) throw new Error("Sign in again before using Wise.");
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+      if (init?.body !== undefined) headers.set("Content-Type", "application/json");
+      const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          payload && typeof payload === "object" && "message" in payload
+            ? String(payload.message)
+            : "Wise request failed."
+        );
+      }
+      return payload as T;
+    },
+    [getToken]
+  );
+
+  const refresh = React.useCallback(async () => {
+    setAction("refresh");
+    setError(null);
+    try {
+      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
+      setStatus(next);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wise status request failed.");
+    } finally {
+      setAction(null);
+    }
+  }, [wiseRequest]);
+
+  useEffect(() => {
+    if (isConfigured) void refresh();
+  }, [isConfigured, refresh]);
+
+  const sync = async () => {
+    setAction("sync");
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await wiseRequest<WiseSyncResponse>("/integrations/wise/sync", {
+        method: "POST"
+      });
+      setInfo(
+        `Synced ${result.profileCount} profile${result.profileCount === 1 ? "" : "s"}, ` +
+          `${result.balanceCount} balance${result.balanceCount === 1 ? "" : "s"}; ` +
+          `imported ${result.transactionResult.imported}, ` +
+          `updated ${result.transactionResult.updated}, ` +
+          `skipped ${result.transactionResult.skipped}.`
+      );
+      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
+      setStatus(next);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wise sync failed.");
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const disconnect = async () => {
+    setAction("disconnect");
+    setError(null);
+    try {
+      await wiseRequest("/integrations/wise/disconnect", { method: "POST" });
+      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
+      setStatus(next);
+      setInfo("Wise disconnected.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wise disconnect failed.");
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const isBusy = action !== null;
+  const isConnected = Boolean(status?.connected);
+  const helper = !isConfigured
+    ? "Set EXPO_PUBLIC_API_URL to enable Wise sync."
+    : status?.configured === false
+      ? status.message ?? "Wise is not configured on the API yet."
+      : status?.authMode === "personal_token"
+        ? "Personal-token mode (sandbox dev). OAuth lands when the app is registered with Wise."
+        : "OAuth-token mode.";
+
+  return (
+    <>
+      <SectionTitle
+        title="Wise"
+        action={status?.environment ? `${status.environment}` : "wise"}
+      />
+      <Card mode="contained" style={styles.card}>
+        <Card.Content style={styles.content}>
+          <List.Item
+            title="Wise wallet & statements"
+            description={helper}
+            left={(props) => <List.Icon {...props} icon="swap-horizontal-circle" />}
+          />
+          {info ? <StateCard title="Wise" detail={info} /> : null}
+          {error ? <StateCard title="Wise action failed" detail={error} tone="error" /> : null}
+          <View style={styles.actionRow}>
+            <Button
+              disabled={!isConfigured || isBusy || status?.configured === false}
+              icon="sync"
+              loading={action === "sync"}
+              mode="contained"
+              onPress={sync}
+            >
+              Sync
+            </Button>
+            <Button
+              disabled={!isConfigured || isBusy}
+              icon="refresh"
+              loading={action === "refresh"}
+              mode="outlined"
+              onPress={refresh}
+            >
+              Status
+            </Button>
+            <Button
+              disabled={!isConfigured || !isConnected || isBusy}
+              icon="link-off"
+              loading={action === "disconnect"}
+              mode="outlined"
+              onPress={disconnect}
+            >
+              Disconnect
+            </Button>
+          </View>
+          {status?.connection?.lastSyncedAt ? (
+            <Chip compact icon="check-circle-outline">
+              Last synced {new Date(status.connection.lastSyncedAt).toLocaleString()}
+            </Chip>
+          ) : null}
+        </Card.Content>
       </Card>
     </>
   );

@@ -334,7 +334,7 @@ export const apiImportProviderTransactions = mutation({
   args: {
     apiSecret: v.string(),
     clerkUserId: v.string(),
-    provider: v.literal("tink"),
+    provider: v.union(v.literal("tink"), v.literal("wise")),
     transactions: v.array(
       v.object({
         providerAccountId: v.string(),
@@ -359,6 +359,7 @@ export const apiImportProviderTransactions = mutation({
     verifyApiSecret(args.apiSecret);
 
     const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const accountSourceForProvider = args.provider === "wise" ? "wise" : "local_bank";
     const now = Date.now();
     const accounts = await ctx.db
       .query("accounts")
@@ -371,7 +372,7 @@ export const apiImportProviderTransactions = mutation({
     for (const transaction of args.transactions) {
       const account = accounts.find(
         (candidate) =>
-          candidate.source === "local_bank" &&
+          candidate.source === accountSourceForProvider &&
           candidate.providerAccountId === transaction.providerAccountId &&
           !candidate.archivedAt
       );
@@ -384,7 +385,7 @@ export const apiImportProviderTransactions = mutation({
       const incomingStatus: "booked" | "pending" = transaction.status ?? "booked";
       const input = {
         accountId: account._id,
-        source: "local_bank" as const,
+        source: accountSourceForProvider,
         providerTransactionId: transaction.providerTransactionId,
         postedAt: transaction.postedAt,
         amount: transaction.amount,

@@ -176,7 +176,7 @@ export const apiUpsertProviderAccounts = mutation({
   args: {
     apiSecret: v.string(),
     clerkUserId: v.string(),
-    provider: v.literal("tink"),
+    provider: v.union(v.literal("tink"), v.literal("wise")),
     accounts: v.array(
       v.object({
         providerAccountId: v.string(),
@@ -198,6 +198,7 @@ export const apiUpsertProviderAccounts = mutation({
     verifyApiSecret(args.apiSecret);
 
     const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const accountSourceForProvider = args.provider === "wise" ? "wise" : "local_bank";
     const now = Date.now();
     let createdCount = 0;
     let updatedCount = 0;
@@ -213,7 +214,7 @@ export const apiUpsertProviderAccounts = mutation({
 
       const existing = existingAccounts.find(
         (account) =>
-          account.source === "local_bank" &&
+          account.source === accountSourceForProvider &&
           account.providerAccountId === providerAccount.providerAccountId
       );
 
@@ -242,7 +243,7 @@ export const apiUpsertProviderAccounts = mutation({
       } else {
         const accountId = await ctx.db.insert("accounts", {
           userId: user._id,
-          source: "local_bank",
+          source: accountSourceForProvider,
           bankKey: providerAccount.bankKey,
           providerAccountId: providerAccount.providerAccountId,
           name: providerAccount.name,

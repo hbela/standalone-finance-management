@@ -519,6 +519,66 @@ export const apiUpdateConnectionConsent = mutation({
   }
 });
 
+export const apiEnsureProviderConnection = mutation({
+  args: {
+    apiSecret: v.string(),
+    clerkUserId: v.string(),
+    provider: providerName,
+    country: countryCode,
+    scopes: v.array(v.string())
+  },
+  handler: async (ctx, args) => {
+    verifyApiSecret(args.apiSecret);
+
+    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("providerConnections")
+      .withIndex("by_user_provider", (q) =>
+        q.eq("userId", user._id).eq("provider", args.provider)
+      )
+      .unique();
+
+    if (existing) {
+      if (existing.status === "disconnected" || existing.status === "revoked") {
+        await ctx.db.patch(existing._id, {
+          status: "connected",
+          scopes: args.scopes,
+          lastError: undefined,
+          updatedAt: now
+        });
+      }
+      return { connectionId: existing._id, created: false };
+    }
+
+    const connectionId = await ctx.db.insert("providerConnections", {
+      userId: user._id,
+      provider: args.provider,
+      country: args.country,
+      status: "connected",
+      scopes: args.scopes,
+      lastSyncStatus: "never_synced",
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await ctx.db.insert("consentEvents", {
+      userId: user._id,
+      type: "provider_connection",
+      status: "granted",
+      metadata: {
+        provider: args.provider,
+        country: args.country,
+        connectionId,
+        scopes: args.scopes.join(" ")
+      },
+      createdAt: now
+    });
+
+    return { connectionId, created: true };
+  }
+});
+
 export const apiDisconnectConnection = mutation({
   args: {
     apiSecret: v.string(),

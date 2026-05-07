@@ -16,6 +16,10 @@ export type ApiConfig = {
   wiseEnvironment: WiseEnvironment;
   wiseApiBaseUrl: string;
   wiseClientId?: string;
+  wiseClientSecret?: string;
+  wiseRedirectUri?: string;
+  wisePersonalToken?: string;
+  wiseLookbackDays: number;
   convexUrl?: string;
   apiServiceSecret?: string;
   tokenEncryptionKey?: string;
@@ -59,6 +63,12 @@ export const config: ApiConfig = {
       ? "https://api.wise.com"
       : "https://api.sandbox.transferwise.tech"),
   wiseClientId: process.env.WISE_CLIENT_ID,
+  wiseClientSecret: process.env.WISE_CLIENT_SECRET,
+  wiseRedirectUri: process.env.WISE_REDIRECT_URI,
+  wisePersonalToken: process.env.WISE_PERSONAL_TOKEN,
+  wiseLookbackDays: Number.isFinite(Number(process.env.WISE_LOOKBACK_DAYS))
+    ? Number(process.env.WISE_LOOKBACK_DAYS)
+    : 90,
   convexUrl: process.env.CONVEX_URL,
   apiServiceSecret: process.env.API_SERVICE_SECRET,
   tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY,
