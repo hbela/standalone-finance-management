@@ -74,11 +74,123 @@ export type WiseStatementResponse = {
   endOfStatementBalance?: WiseBalanceAmount;
 };
 
+export type WiseTokenResponse = {
+  access_token: string;
+  refresh_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  scope?: string;
+  user_id?: string;
+};
+
 function authHeaders(accessToken: string) {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${accessToken}`
   };
+}
+
+function basicAuthHeader(clientId: string, clientSecret: string) {
+  return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+}
+
+export async function exchangeWiseAuthorizationCode(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<WiseTokenResponse> {
+  if (!config.wiseClientId || !config.wiseClientSecret) {
+    throw new Error("Wise OAuth client credentials are not configured");
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: input.code,
+    redirect_uri: input.redirectUri
+  });
+
+  const response = await fetch(`${config.wiseApiBaseUrl}/oauth/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: basicAuthHeader(config.wiseClientId, config.wiseClientSecret)
+    },
+    body
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object"
+        ? "error_description" in payload
+          ? String(payload.error_description)
+          : "error" in payload
+            ? String(payload.error)
+            : `Wise token exchange failed with ${response.status}`
+        : `Wise token exchange failed with ${response.status}`;
+    if (response.status === 401 || response.status === 403) {
+      throw new WiseAuthError(message, response.status);
+    }
+    throw new Error(message);
+  }
+
+  if (!isTokenResponse(payload)) {
+    throw new Error("Wise token exchange returned an invalid response");
+  }
+  return payload;
+}
+
+export async function refreshWiseAccessToken(input: {
+  refreshToken: string;
+}): Promise<WiseTokenResponse> {
+  if (!config.wiseClientId || !config.wiseClientSecret) {
+    throw new Error("Wise OAuth client credentials are not configured");
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken
+  });
+
+  const response = await fetch(`${config.wiseApiBaseUrl}/oauth/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: basicAuthHeader(config.wiseClientId, config.wiseClientSecret)
+    },
+    body
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object"
+        ? "error_description" in payload
+          ? String(payload.error_description)
+          : "error" in payload
+            ? String(payload.error)
+            : `Wise token refresh failed with ${response.status}`
+        : `Wise token refresh failed with ${response.status}`;
+    if (response.status === 401 || response.status === 403 || response.status === 400) {
+      throw new WiseAuthError(message, response.status);
+    }
+    throw new Error(message);
+  }
+
+  if (!isTokenResponse(payload)) {
+    throw new Error("Wise token refresh returned an invalid response");
+  }
+  return payload;
+}
+
+function isTokenResponse(value: unknown): value is WiseTokenResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "access_token" in value &&
+    typeof (value as WiseTokenResponse).access_token === "string"
+  );
 }
 
 async function readError(response: Response, fallback: string) {

@@ -420,7 +420,8 @@ type WiseStatusResponse = {
   connected: boolean;
   configured: boolean;
   environment: string;
-  authMode?: "personal_token" | "oauth";
+  authMode?: "personal_token" | "oauth" | "unconfigured";
+  oauthAvailable?: boolean;
   message?: string;
   connection?: {
     status: string;
@@ -438,7 +439,7 @@ type WiseSyncResponse = {
   transactionResult: { imported: number; updated: number; skipped: number };
 };
 
-type WiseAction = "sync" | "disconnect" | "refresh" | null;
+type WiseAction = "connect" | "sync" | "disconnect" | "refresh" | null;
 
 function AuthenticatedWiseConnectionSection() {
   const { getToken } = useAuth();
@@ -489,6 +490,24 @@ function AuthenticatedWiseConnectionSection() {
     if (isConfigured) void refresh();
   }, [isConfigured, refresh]);
 
+  const connect = async () => {
+    setAction("connect");
+    setError(null);
+    setInfo(null);
+    try {
+      const { url } = await wiseRequest<{ url: string }>("/integrations/wise/connect");
+      const opened = await Linking.openURL(url);
+      if (opened === false) {
+        throw new Error("Could not open Wise authorization URL.");
+      }
+      setInfo("Authorize Wise in your browser, then return to this app.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wise connect failed.");
+    } finally {
+      setAction(null);
+    }
+  };
+
   const sync = async () => {
     setAction("sync");
     setError(null);
@@ -530,13 +549,17 @@ function AuthenticatedWiseConnectionSection() {
 
   const isBusy = action !== null;
   const isConnected = Boolean(status?.connected);
+  const oauthAvailable = Boolean(status?.oauthAvailable);
+  const showConnect = oauthAvailable && (status?.authMode !== "oauth" || !isConnected);
   const helper = !isConfigured
     ? "Set EXPO_PUBLIC_API_URL to enable Wise sync."
     : status?.configured === false
       ? status.message ?? "Wise is not configured on the API yet."
-      : status?.authMode === "personal_token"
-        ? "Personal-token mode (sandbox dev). OAuth lands when the app is registered with Wise."
-        : "OAuth-token mode.";
+      : status?.authMode === "oauth"
+        ? "OAuth-token mode. Each user has their own Wise authorization."
+        : status?.authMode === "personal_token"
+          ? "Personal-token mode (sandbox dev). Connect via OAuth once the app is registered with Wise."
+          : "Wise is not configured on the API yet.";
 
   return (
     <>
@@ -554,11 +577,22 @@ function AuthenticatedWiseConnectionSection() {
           {info ? <StateCard title="Wise" detail={info} /> : null}
           {error ? <StateCard title="Wise action failed" detail={error} tone="error" /> : null}
           <View style={styles.actionRow}>
+            {showConnect ? (
+              <Button
+                disabled={!isConfigured || isBusy}
+                icon="bank-plus"
+                loading={action === "connect"}
+                mode="contained"
+                onPress={connect}
+              >
+                {isConnected ? "Reconnect via Wise" : "Connect via Wise"}
+              </Button>
+            ) : null}
             <Button
               disabled={!isConfigured || isBusy || status?.configured === false}
               icon="sync"
               loading={action === "sync"}
-              mode="contained"
+              mode={showConnect ? "outlined" : "contained"}
               onPress={sync}
             >
               Sync
