@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, ProgressBar, Text } from "react-native-paper";
+import { useMutation, useQuery } from "convex/react";
 
 import { AddAccountDialog } from "../components/AddAccountDialog";
 import { EditAccountDialog } from "../components/EditAccountDialog";
@@ -8,11 +9,30 @@ import { MetricCard } from "../components/MetricCard";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
+import { api } from "../convexApi";
+import type { Doc } from "../../../../convex/_generated/dataModel";
 import { alerts, baseCurrency } from "../data/mockFinance";
 import type { Account } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
+
+type IncomeStream = Doc<"incomeStreams">;
+type ExpenseProfile = Doc<"expenseProfiles">;
+type ForecastResult = {
+  currency: "EUR" | "HUF" | "USD" | "GBP";
+  horizonDays: number;
+  startingBalance: number;
+  endingBalance: number;
+  totalInflow: number;
+  totalOutflow: number;
+  points: Array<{
+    date: string;
+    projectedBalance: number;
+    expectedInflow: number;
+    expectedOutflow: number;
+  }>;
+};
 
 export function DashboardScreen() {
   const [addAccountVisible, setAddAccountVisible] = useState(false);
@@ -23,6 +43,47 @@ export function DashboardScreen() {
   const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
   const unreconciledAccounts = reconciliations.filter((reconciliation) => reconciliation.needsReconciliation);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
+
+  const incomeStreamDocs = useQuery(api.incomeStreams.listForCurrent) as IncomeStream[] | undefined;
+  const incomeStreams = useMemo(
+    () =>
+      (incomeStreamDocs ?? [])
+        .filter((stream) => !stream.archivedAt && !stream.dismissedAt)
+        .sort((left, right) => (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0)),
+    [incomeStreamDocs]
+  );
+  const totalEstimatedMonthlyIncome = useMemo(
+    () => incomeStreams.reduce((sum, stream) => sum + stream.monthlyAverage, 0),
+    [incomeStreams]
+  );
+  const archiveIncomeStream = useMutation(api.incomeStreams.archive);
+  const dismissIncomeStream = useMutation(api.incomeStreams.dismiss);
+  const confirmIncomeStream = useMutation(api.incomeStreams.confirm);
+
+  const expenseProfileDocs = useQuery(api.expenseProfiles.listForCurrent) as
+    | ExpenseProfile[]
+    | undefined;
+  const expenseProfiles = useMemo(
+    () =>
+      (expenseProfileDocs ?? [])
+        .filter((profile) => !profile.archivedAt && !profile.dismissedAt)
+        .sort((left, right) => left.monthlyAverage - right.monthlyAverage),
+    [expenseProfileDocs]
+  );
+  const totalEstimatedMonthlyExpenses = useMemo(
+    () => expenseProfiles.reduce((sum, profile) => sum + Math.abs(profile.monthlyAverage), 0),
+    [expenseProfiles]
+  );
+  const archiveExpenseProfile = useMutation(api.expenseProfiles.archive);
+  const dismissExpenseProfile = useMutation(api.expenseProfiles.dismiss);
+
+  const forecast = useQuery(api.forecast.getBalanceForecast, { horizonDays: 30 }) as
+    | ForecastResult
+    | undefined;
+  const forecastHasContent = Boolean(
+    forecast && (forecast.points.length > 0 || forecast.startingBalance !== 0)
+  );
+  const forecastDelta = forecast ? forecast.endingBalance - forecast.startingBalance : 0;
 
   return (
     <Screen>
@@ -66,6 +127,153 @@ export function DashboardScreen() {
         <MetricCard label="Debt paid" value={formatMoney(summary.debtPayments, "EUR")} helper="Loans and mortgage" />
         <MetricCard label="Cash flow" value={formatMoney(summary.cashFlow, "EUR")} helper="After commitments" />
       </View>
+
+      {forecast && forecastHasContent ? (
+        <Card mode="contained" style={styles.forecastCard}>
+          <Card.Content>
+            <View style={styles.forecastHeader}>
+              <View>
+                <Text variant="labelLarge" style={styles.forecastLabel}>
+                  Projected balance in {forecast.horizonDays} days
+                </Text>
+                <Text variant="displaySmall" style={styles.forecastValue}>
+                  {formatMoney(forecast.endingBalance, forecast.currency)}
+                </Text>
+              </View>
+              <Chip
+                compact
+                icon={forecastDelta >= 0 ? "trending-up" : "trending-down"}
+                style={forecastDelta >= 0 ? styles.forecastUpChip : styles.forecastDownChip}
+              >
+                {`${forecastDelta >= 0 ? "+" : ""}${formatMoney(forecastDelta, forecast.currency)}`}
+              </Chip>
+            </View>
+            <Text variant="bodyMedium" style={styles.forecastCopy}>
+              Today {formatMoney(forecast.startingBalance, forecast.currency)} . expected{" "}
+              <Text style={styles.positive}>+{formatMoney(forecast.totalInflow, forecast.currency)}</Text> in,{" "}
+              <Text style={styles.negative}>-{formatMoney(forecast.totalOutflow, forecast.currency)}</Text> out
+            </Text>
+            <Text variant="bodySmall" style={styles.muted}>
+              Forecast in {forecast.currency} only — multi-currency rollup coming with FX integration.
+            </Text>
+          </Card.Content>
+        </Card>
+      ) : null}
+
+      {incomeStreams.length > 0 ? (
+        <>
+          <SectionTitle
+            title="Income Streams"
+            action={`${formatMoney(totalEstimatedMonthlyIncome, "EUR")} / mo est.`}
+          />
+          <Card mode="contained" style={styles.card}>
+            {incomeStreams.map((stream, index) => (
+              <View key={stream._id}>
+                <List.Item
+                  title={stream.employerName}
+                  description={`${formatStreamFrequency(stream.frequency)} . ${stream.transactionCount} payments . next around ${formatStreamDate(stream.nextExpectedAt)}`}
+                  left={(props) => <List.Icon {...props} icon="cash-multiple" />}
+                  right={() => (
+                    <View style={styles.amountBlock}>
+                      <Text variant="titleSmall" style={styles.incomeAmount}>
+                        {formatMoney(stream.averageAmount, stream.currency)}
+                      </Text>
+                      <Text variant="bodySmall" style={styles.muted}>
+                        {formatMoney(stream.monthlyAverage, stream.currency)} / mo
+                      </Text>
+                    </View>
+                  )}
+                />
+                <View style={styles.streamMetaRow}>
+                  <Chip compact icon={stream.confidence === "high" ? "check-circle-outline" : "help-circle-outline"}>
+                    {stream.confidence} confidence
+                  </Chip>
+                  {stream.confirmedAt ? <Chip compact icon="check">Confirmed</Chip> : null}
+                  {!stream.confirmedAt ? (
+                    <Button
+                      compact
+                      mode="contained-tonal"
+                      icon="check"
+                      onPress={() => void confirmIncomeStream({ streamId: stream._id })}
+                    >
+                      Confirm
+                    </Button>
+                  ) : null}
+                  <Button
+                    compact
+                    mode="outlined"
+                    icon="archive-outline"
+                    onPress={() => void archiveIncomeStream({ streamId: stream._id })}
+                  >
+                    Archive
+                  </Button>
+                  <Button
+                    compact
+                    mode="text"
+                    icon="close"
+                    onPress={() => void dismissIncomeStream({ streamId: stream._id })}
+                  >
+                    Dismiss
+                  </Button>
+                </View>
+                {index < incomeStreams.length - 1 ? <Divider /> : null}
+              </View>
+            ))}
+          </Card>
+        </>
+      ) : null}
+
+      {expenseProfiles.length > 0 ? (
+        <>
+          <SectionTitle
+            title="Expense Profile"
+            action={`${formatMoney(totalEstimatedMonthlyExpenses, "EUR")} / mo est.`}
+          />
+          <Card mode="contained" style={styles.card}>
+            {expenseProfiles.map((profile, index) => (
+              <View key={profile._id}>
+                <List.Item
+                  title={profile.category}
+                  description={`${profile.monthsObserved} ${profile.monthsObserved === 1 ? "month" : "months"} . ${profile.transactionCount} payments`}
+                  left={(props) => <List.Icon {...props} icon="chart-pie" />}
+                  right={() => (
+                    <View style={styles.amountBlock}>
+                      <Text variant="titleSmall" style={styles.expenseAmount}>
+                        {formatMoney(Math.abs(profile.monthlyAverage), profile.currency)}
+                      </Text>
+                      <Text variant="bodySmall" style={styles.muted}>
+                        avg / mo
+                      </Text>
+                    </View>
+                  )}
+                />
+                <View style={styles.streamMetaRow}>
+                  <Chip compact icon={profile.confidence === "high" ? "check-circle-outline" : "help-circle-outline"}>
+                    {profile.confidence} confidence
+                  </Chip>
+                  <Button
+                    compact
+                    mode="outlined"
+                    icon="archive-outline"
+                    onPress={() => void archiveExpenseProfile({ profileId: profile._id })}
+                  >
+                    Archive
+                  </Button>
+                  <Button
+                    compact
+                    mode="text"
+                    icon="close"
+                    onPress={() => void dismissExpenseProfile({ profileId: profile._id })}
+                  >
+                    Dismiss
+                  </Button>
+                </View>
+                {index < expenseProfiles.length - 1 ? <Divider /> : null}
+              </View>
+            ))}
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle title="Cash By Account" action="Manage" />
       {accounts.length > 0 ? (
@@ -248,5 +456,78 @@ const styles = StyleSheet.create({
   },
   alertText: {
     flex: 1
+  },
+  streamMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 16
+  },
+  incomeAmount: {
+    color: "#19624A",
+    fontWeight: "700"
+  },
+  expenseAmount: {
+    color: "#8A3A24",
+    fontWeight: "700"
+  },
+  forecastCard: {
+    backgroundColor: "#F4F8F6",
+    borderRadius: 8
+  },
+  forecastHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  forecastLabel: {
+    color: "#19624A"
+  },
+  forecastValue: {
+    color: "#073827",
+    fontWeight: "800",
+    marginTop: 4
+  },
+  forecastCopy: {
+    color: "#325243",
+    marginTop: 8
+  },
+  forecastUpChip: {
+    backgroundColor: "#D6EADF"
+  },
+  forecastDownChip: {
+    backgroundColor: "#F4D8CD"
+  },
+  positive: {
+    color: "#19624A",
+    fontWeight: "700"
+  },
+  negative: {
+    color: "#8A3A24",
+    fontWeight: "700"
   }
 });
+
+function formatStreamFrequency(frequency: IncomeStream["frequency"]) {
+  switch (frequency) {
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Every 2 weeks";
+    case "quarterly":
+      return "Quarterly";
+    case "yearly":
+      return "Yearly";
+    default:
+      return "Monthly";
+  }
+}
+
+function formatStreamDate(epochMs: number | undefined) {
+  if (typeof epochMs !== "number" || !Number.isFinite(epochMs)) {
+    return "—";
+  }
+  return new Date(epochMs).toISOString().slice(0, 10);
+}

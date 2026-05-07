@@ -33,6 +33,7 @@ import {
   type FxBaseCurrency,
   type FxSnapshot
 } from "../fxRates.js";
+import { mapTinkCategoryCode } from "../tinkCategoryMapping.js";
 
 type SupportedCurrency = "HUF" | "EUR" | "USD" | "GBP";
 type AccountType = "checking" | "savings" | "credit" | "loan" | "mortgage";
@@ -730,6 +731,10 @@ export async function registerTinkRoutes(app: FastifyInstance) {
             }
           )) as { imported: number; updated: number; skipped: number };
 
+          await runRecurringDetection(convex, userId, request.log);
+          await runIncomeDetection(convex, userId, request.log);
+          await runExpenseProfileDetection(convex, userId, request.log);
+
           return {
             grantedScopes,
             credentialDiagnostics,
@@ -920,6 +925,10 @@ export async function registerTinkRoutes(app: FastifyInstance) {
               transactions
             }
           )) as { imported: number; updated: number; skipped: number };
+
+          await runRecurringDetection(convex, userId, request.log);
+          await runIncomeDetection(convex, userId, request.log);
+          await runExpenseProfileDetection(convex, userId, request.log);
 
           return {
             tinkTransactions,
@@ -1512,6 +1521,7 @@ function normalizeTinkTransactions(
     const merchant = transaction.merchantInformation?.merchantName ?? transaction.merchantName;
     const status: "booked" | "pending" =
       transaction.status?.toLowerCase() === "pending" ? "pending" : "booked";
+    const { categoryId, tinkCategoryCode } = mapTinkCategoryCode(transaction.category);
 
     normalized.push({
       providerAccountId,
@@ -1522,7 +1532,8 @@ function normalizeTinkTransactions(
       baseCurrencyAmount: toBaseCurrencyAmount(amount, currency, fxSnapshot),
       description,
       merchant,
-      categoryId: transaction.category,
+      categoryId,
+      tinkCategoryCode,
       type: normalizeTransactionType(amount, transaction.category),
       isRecurring: false,
       isExcludedFromReports: false,
@@ -1583,6 +1594,130 @@ function defaultEurStaticSnapshot(): FxSnapshot {
     source: "static",
     fetchedAt: Date.now()
   };
+}
+
+async function runRecurringDetection(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  clerkUserId: string,
+  log: FastifyBaseLogger
+) {
+  if (!config.apiServiceSecret) {
+    return;
+  }
+
+  try {
+    const result = (await convex.mutation(
+      convexApi.recurringSubscriptions.apiDetectForUser,
+      {
+        apiSecret: config.apiServiceSecret,
+        clerkUserId
+      }
+    )) as {
+      detected: number;
+      created: number;
+      updated: number;
+      archived: number;
+      taggedTransactions: number;
+    };
+
+    log.info(
+      {
+        provider: "tink",
+        clerkUserId,
+        ...result
+      },
+      "recurring subscription detection completed"
+    );
+  } catch (error) {
+    log.warn(
+      {
+        provider: "tink",
+        clerkUserId,
+        errorMessage: error instanceof Error ? error.message : "recurring detection failed"
+      },
+      "recurring subscription detection failed"
+    );
+  }
+}
+
+async function runIncomeDetection(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  clerkUserId: string,
+  log: FastifyBaseLogger
+) {
+  if (!config.apiServiceSecret) {
+    return;
+  }
+
+  try {
+    const result = (await convex.mutation(convexApi.incomeStreams.apiDetectForUser, {
+      apiSecret: config.apiServiceSecret,
+      clerkUserId
+    })) as {
+      detected: number;
+      created: number;
+      updated: number;
+      archived: number;
+    };
+
+    log.info(
+      {
+        provider: "tink",
+        clerkUserId,
+        ...result
+      },
+      "income stream detection completed"
+    );
+  } catch (error) {
+    log.warn(
+      {
+        provider: "tink",
+        clerkUserId,
+        errorMessage: error instanceof Error ? error.message : "income detection failed"
+      },
+      "income stream detection failed"
+    );
+  }
+}
+
+async function runExpenseProfileDetection(
+  convex: NonNullable<ReturnType<typeof getConvexClient>>,
+  clerkUserId: string,
+  log: FastifyBaseLogger
+) {
+  if (!config.apiServiceSecret) {
+    return;
+  }
+
+  try {
+    const result = (await convex.mutation(convexApi.expenseProfiles.apiDetectForUser, {
+      apiSecret: config.apiServiceSecret,
+      clerkUserId
+    })) as {
+      detected: number;
+      created: number;
+      updated: number;
+      archived: number;
+    };
+
+    log.info(
+      {
+        provider: "tink",
+        clerkUserId,
+        ...result
+      },
+      "expense profile detection completed"
+    );
+  } catch (error) {
+    log.warn(
+      {
+        provider: "tink",
+        clerkUserId,
+        errorMessage: error instanceof Error ? error.message : "expense profile detection failed"
+      },
+      "expense profile detection failed"
+    );
+  }
 }
 
 async function persistBalanceSnapshots(

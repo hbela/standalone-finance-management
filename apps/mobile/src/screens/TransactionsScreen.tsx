@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, Searchbar, SegmentedButtons, Text } from "react-native-paper";
+import { useMutation, useQuery } from "convex/react";
 
 import { AddTransactionDialog } from "../components/AddTransactionDialog";
 import { EditTransactionDialog } from "../components/EditTransactionDialog";
@@ -8,10 +9,14 @@ import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
+import { api } from "../convexApi";
+import type { Doc } from "../../../../convex/_generated/dataModel";
 import type { Transaction, TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 import { formatSignedMoney } from "../utils/money";
 import { detectRecurringCandidates, type RecurringCandidate } from "../utils/recurring";
+
+type RecurringSubscription = Doc<"recurringSubscriptions">;
 
 const filterOptions = [
   { value: "all", label: "All" },
@@ -53,6 +58,20 @@ export function TransactionsScreen() {
         .slice(0, 3),
     [dismissedRecurringCandidates, transactions]
   );
+
+  const subscriptionDocs = useQuery(api.recurringSubscriptions.listForCurrent) as
+    | RecurringSubscription[]
+    | undefined;
+  const subscriptions = useMemo(
+    () =>
+      (subscriptionDocs ?? [])
+        .filter((subscription) => !subscription.archivedAt && !subscription.dismissedAt)
+        .sort((left, right) => (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0)),
+    [subscriptionDocs]
+  );
+  const dismissSubscription = useMutation(api.recurringSubscriptions.dismiss);
+  const archiveSubscription = useMutation(api.recurringSubscriptions.archive);
+  const confirmSubscription = useMutation(api.recurringSubscriptions.confirm);
 
   const confirmRecurringCandidate = async (candidate: RecurringCandidate) => {
     await Promise.all(
@@ -98,6 +117,72 @@ export function TransactionsScreen() {
           </Button>
         </View>
       </View>
+      {subscriptions.length > 0 ? (
+        <Card mode="contained" style={styles.card}>
+          <Card.Title
+            title="Subscriptions"
+            subtitle={`${subscriptions.length} active recurring ${subscriptions.length === 1 ? "payment" : "payments"}`}
+            left={(props) => <List.Icon {...props} icon="repeat-variant" />}
+          />
+          {subscriptions.map((subscription, index) => (
+            <View key={subscription._id}>
+              <List.Item
+                title={subscription.merchant}
+                description={`${formatSubscriptionFrequency(subscription.frequency)} . ${subscription.transactionCount} payments . next around ${formatSubscriptionDate(subscription.nextExpectedAt)}`}
+                left={(props) => <List.Icon {...props} icon="calendar-clock" />}
+                right={() => (
+                  <View style={styles.amountBlock}>
+                    <Text variant="titleSmall" style={subscription.averageAmount > 0 ? styles.positive : styles.negative}>
+                      {formatSignedMoney(subscription.averageAmount, subscription.currency)}
+                    </Text>
+                    <Text variant="bodySmall" style={styles.muted}>
+                      {formatSignedMoney(subscription.monthlyAmount, subscription.currency)} / mo
+                    </Text>
+                  </View>
+                )}
+              />
+              <View style={styles.metaRow}>
+                {subscription.category ? (
+                  <Chip compact icon="tag-outline">
+                    {subscription.category}
+                  </Chip>
+                ) : null}
+                <Chip compact icon={subscription.confidence === "high" ? "check-circle-outline" : "help-circle-outline"}>
+                  {subscription.confidence} confidence
+                </Chip>
+                {subscription.confirmedAt ? <Chip compact icon="check">Confirmed</Chip> : null}
+                {!subscription.confirmedAt ? (
+                  <Button
+                    compact
+                    mode="contained-tonal"
+                    icon="check"
+                    onPress={() => void confirmSubscription({ subscriptionId: subscription._id })}
+                  >
+                    Confirm
+                  </Button>
+                ) : null}
+                <Button
+                  compact
+                  mode="outlined"
+                  icon="archive-outline"
+                  onPress={() => void archiveSubscription({ subscriptionId: subscription._id })}
+                >
+                  Archive
+                </Button>
+                <Button
+                  compact
+                  mode="text"
+                  icon="close"
+                  onPress={() => void dismissSubscription({ subscriptionId: subscription._id })}
+                >
+                  Dismiss
+                </Button>
+              </View>
+              {index < subscriptions.length - 1 ? <Divider /> : null}
+            </View>
+          ))}
+        </Card>
+      ) : null}
       {recurringCandidates.length > 0 ? (
         <Card mode="contained" style={styles.card}>
           <Card.Title
@@ -224,6 +309,28 @@ function formatInterval(interval: RecurringCandidate["interval"]) {
     default:
       return "Monthly";
   }
+}
+
+function formatSubscriptionFrequency(frequency: RecurringSubscription["frequency"]) {
+  switch (frequency) {
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Every 2 weeks";
+    case "quarterly":
+      return "Quarterly";
+    case "yearly":
+      return "Yearly";
+    default:
+      return "Monthly";
+  }
+}
+
+function formatSubscriptionDate(epochMs: number | undefined) {
+  if (typeof epochMs !== "number" || !Number.isFinite(epochMs)) {
+    return "—";
+  }
+  return new Date(epochMs).toISOString().slice(0, 10);
 }
 
 function iconForType(type: TransactionType) {

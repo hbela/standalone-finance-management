@@ -123,9 +123,11 @@ export default defineSchema({
     description: v.string(),
     merchant: v.optional(v.string()),
     categoryId: v.optional(v.string()),
+    tinkCategoryCode: v.optional(v.string()),
     importBatchId: v.optional(v.id("importBatches")),
     type: transactionType,
     isRecurring: v.boolean(),
+    recurringGroupId: v.optional(v.id("recurringSubscriptions")),
     isExcludedFromReports: v.boolean(),
     transferMatchId: v.optional(v.id("transactions")),
     dedupeHash: v.string(),
@@ -160,6 +162,7 @@ export default defineSchema({
   categories: defineTable({
     userId: v.id("users"),
     name: v.string(),
+    tinkCategoryCode: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number()
@@ -310,6 +313,89 @@ export default defineSchema({
   })
     .index("by_event_id", ["eventId"])
     .index("by_provider_received_at", ["provider", "receivedAt"]),
+
+  expenseProfiles: defineTable({
+    userId: v.id("users"),
+    groupKey: v.string(),
+    category: v.string(),
+    currency: currencyCode,
+    monthlyAverage: v.number(),
+    totalAmount: v.number(),
+    monthsObserved: v.number(),
+    transactionCount: v.number(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    confidence: v.union(v.literal("high"), v.literal("medium")),
+    confirmedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_group_key", ["userId", "groupKey"]),
+
+  incomeStreams: defineTable({
+    userId: v.id("users"),
+    accountId: v.id("accounts"),
+    groupKey: v.string(),
+    employerName: v.string(),
+    currency: currencyCode,
+    averageAmount: v.number(),
+    monthlyAverage: v.number(),
+    frequency: v.union(
+      v.literal("weekly"),
+      v.literal("biweekly"),
+      v.literal("monthly"),
+      v.literal("quarterly"),
+      v.literal("yearly")
+    ),
+    confidence: v.union(v.literal("high"), v.literal("medium")),
+    transactionCount: v.number(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    nextExpectedAt: v.optional(v.number()),
+    confirmedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_group_key", ["userId", "groupKey"])
+    .index("by_account_id", ["accountId"]),
+
+  recurringSubscriptions: defineTable({
+    userId: v.id("users"),
+    accountId: v.id("accounts"),
+    groupKey: v.string(),
+    merchant: v.string(),
+    category: v.optional(v.string()),
+    type: transactionType,
+    currency: currencyCode,
+    averageAmount: v.number(),
+    monthlyAmount: v.number(),
+    frequency: v.union(
+      v.literal("weekly"),
+      v.literal("biweekly"),
+      v.literal("monthly"),
+      v.literal("quarterly"),
+      v.literal("yearly")
+    ),
+    confidence: v.union(v.literal("high"), v.literal("medium")),
+    transactionCount: v.number(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    nextExpectedAt: v.optional(v.number()),
+    confirmedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index("by_user_id", ["userId"])
+    .index("by_user_group_key", ["userId", "groupKey"])
+    .index("by_account_id", ["accountId"]),
 
   consentEvents: defineTable({
     userId: v.id("users"),

@@ -191,7 +191,8 @@ scenario("normalizes posted transactions and creates stable provider dedupe hash
       baseCurrencyAmount: -25.4,
       description: "SPAR Budapest",
       merchant: "SPAR",
-      categoryId: "groceries",
+      categoryId: "Food",
+      tinkCategoryCode: "groceries",
       type: "expense",
       isRecurring: false,
       isExcludedFromReports: false,
@@ -208,13 +209,59 @@ scenario("normalizes posted transactions and creates stable provider dedupe hash
     baseCurrencyAmount: 12.99,
     description: "Card refund",
     merchant: "Online Shop",
-    categoryId: "refund",
+    categoryId: "Other",
+    tinkCategoryCode: "refund",
     type: "refund",
     isRecurring: false,
     isExcludedFromReports: false,
     status: "booked",
     dedupeHash: "tink|acc-eur-card|2026-05-04|12.99|EUR|card refund|online shop"
   });
+});
+
+scenario("resolves Tink taxonomy category codes to app categories and preserves the raw code", () => {
+  const result = normalizeTinkTransactions([
+    {
+      id: "tx-food-tax",
+      accountId: "acc-eur-card",
+      amount: { value: -42.5, currencyCode: "EUR" },
+      descriptions: { display: "SPAR Wien" },
+      category: "expenses:food.groceries",
+      bookedDate: "2026-05-04"
+    },
+    {
+      id: "tx-utilities-tax",
+      accountId: "acc-eur-card",
+      amount: { value: -100, currencyCode: "EUR" },
+      description: "ELMU Budapest",
+      category: "expenses:home.utilities.electricity",
+      bookedDate: "2026-05-04"
+    },
+    {
+      id: "tx-unknown-tax",
+      accountId: "acc-eur-card",
+      amount: { value: -5, currencyCode: "EUR" },
+      description: "Mystery merchant",
+      category: "expenses:something-tink-invented-yesterday",
+      bookedDate: "2026-05-04"
+    }
+  ]);
+
+  assert.equal(result.skippedCount, 0);
+  const food = result.transactions.find((tx) => tx.providerTransactionId === "tx-food-tax");
+  assert.ok(food);
+  assert.equal(food.categoryId, "Food");
+  assert.equal(food.tinkCategoryCode, "expenses:food.groceries");
+
+  const utilities = result.transactions.find((tx) => tx.providerTransactionId === "tx-utilities-tax");
+  assert.ok(utilities);
+  assert.equal(utilities.categoryId, "Utilities");
+  assert.equal(utilities.tinkCategoryCode, "expenses:home.utilities.electricity");
+
+  const unknown = result.transactions.find((tx) => tx.providerTransactionId === "tx-unknown-tax");
+  assert.ok(unknown);
+  assert.equal(unknown.categoryId, undefined);
+  assert.equal(unknown.tinkCategoryCode, "expenses:something-tink-invented-yesterday");
 });
 
 scenario("retains pending transactions and skips structurally incomplete rows", () => {
