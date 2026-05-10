@@ -1,0 +1,8 @@
+# Copy to apps/bridge/.dev.vars for local `wrangler dev`. Never commit .dev.vars.
+TINK_CLIENT_ID=
+TINK_CLIENT_SECRET=
+TINK_REDIRECT_URI=http://127.0.0.1:8787/oauth/tink/callback
+
+WISE_CLIENT_ID=
+WISE_CLIENT_SECRET=
+WISE_REDIRECT_URI=http://127.0.0.1:8787/oauth/wise/callback

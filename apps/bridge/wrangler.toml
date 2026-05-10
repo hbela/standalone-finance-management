@@ -1,0 +1,24 @@
+name = "wise-finance-bridge"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Public env (non-secret). Defaults assume the Tink/Wise sandbox tier.
+# Override per environment block below or via `wrangler secret put` for secrets.
+[vars]
+TINK_API_BASE_URL = "https://api.tink.com"
+WISE_API_BASE_URL = "https://api.sandbox.transferwise.tech"
+APP_DEEP_LINK_SCHEME = "wise-finance"
+SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = "300"
+
+# Secrets to set via `wrangler secret put <NAME>`:
+#   TINK_CLIENT_ID
+#   TINK_CLIENT_SECRET
+#   TINK_REDIRECT_URI       (must match the URL registered in Tink Console)
+#   WISE_CLIENT_ID
+#   WISE_CLIENT_SECRET
+#   WISE_REDIRECT_URI       (must match the URL registered in Wise Platform)
+
+# Production override — uncomment after Wise prod approval.
+# [env.production.vars]
+# WISE_API_BASE_URL = "https://api.wise.com"

@@ -1,12 +1,29 @@
 # Wise Finance Management
 
-Personal-finance app with EU bank aggregation via Tink and a forward-looking PFM layer (categorisation, recurring detection, income streams, expense profile, 30-day balance forecast). Mobile is Expo + React Native + react-native-paper; backend is a Fastify API plus Convex (DB + reactive server functions); auth is Clerk.
+Personal-finance app with EU bank aggregation via Tink and a forward-looking PFM layer (categorisation, recurring detection, income streams, expense profile, 30-day balance forecast). Mobile is Expo + React Native + react-native-paper.
+
+## ⚠ Architecture is mid-pivot
+
+As of 2026-05-10 the project is migrating from a **Fastify + Convex + Clerk + Coolify** backend to a **mobile-first** architecture with a **zero-knowledge OAuth bridge** (Cloudflare Worker). The plan is at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Wise Finance Management/Mobile-First Bridge Track.md` (milestones M1–M8). Until that migration completes, **both architectures coexist in the repo** — the old one keeps working while the new one is built up alongside.
+
+End-state shape:
+- **Mobile (Expo)** holds everything — Expo SQLite ledger, SecureStore for tokens, ported PFM heuristics, FX cache. Auth is on-device biometric only; no Clerk.
+- **`bridge/` (Cloudflare Worker)** is stateless. Only role: holds `TINK_CLIENT_SECRET` + `WISE_CLIENT_SECRET` and proxies the OAuth code-exchange + refresh calls. Stores nothing.
+- **Convex, Fastify, Clerk, Coolify** are all planned for removal in milestone M6. Don't build new features on them.
+
+Current milestone: **M1 — Bridge MVP**.
 
 ## Repo layout
 
 ```
 apps/
-  api/                # Fastify Node API — Tink/Wise integrations, FX, webhook listener
+  bridge/             # NEW (M1) — Cloudflare Worker OAuth bridge for Tink + Wise
+    src/
+      index.ts        # Worker entry, Hono router
+      routes/         # tink.ts (callback + refresh), wise.ts (callback + refresh)
+      lib/            # signature.ts (Ed25519), deepLink.ts, providers.ts
+    test/             # Vitest smoke tests
+  api/                # ⚠ DEPRECATED — Fastify Node API. Removed in M6.
     src/
       routes/         # tink.ts, tinkWebhooks.ts, wise.ts, me.ts, banks.ts, health.ts
       *.ts            # tinkClient, tinkSession, tokenVault, oauthState,
@@ -15,13 +32,18 @@ apps/
     test/*.mjs        # Plain Node test scripts that import from dist/
     scripts/          # Sandbox probes + smoke tests against the live Tink dev contract
   mobile/             # Expo app — DashboardScreen, TransactionsScreen, SettingsScreen, …
-convex/               # Convex schema + queries/mutations (Convex bundles this folder)
+convex/               # ⚠ DEPRECATED — Convex schema + queries/mutations. Removed in M6.
   _generated/         # Auto-generated; regenerate via `npx convex codegen` after schema edits
 packages/shared/      # Shared TS types (CountryCode, CurrencyCode, …)
-docs/                 # THE_TINK_LAYER, TINK_SANDBOX_TEST_SCENARIOS, TINK_CONNECTION_ISSUE_REPORT
+docs/                 # THE_TINK_LAYER, TINK_SANDBOX_TEST_SCENARIOS, TINK_CONNECTION_ISSUE_REPORT, DEPLOY_COOLIFY (deprecated)
 ```
 
-The current state of the integration is tracked in the user's Obsidian vault at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Wise Finance Management/Tink Hardening Track.md` (T1 hardening / T2 aggregation depth / T3 enrichment & PFM). The companion source plan is at `C:/Users/hajze/.claude/plans/look-at-what-features-enchanted-river.md`. Read those for "why" — the codebase is the source of truth for "what".
+Project tracking lives in the Obsidian vault at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Wise Finance Management/`:
+- **Mobile-First Bridge Track.md** — current direction (M1–M8 migration).
+- **Tink Hardening Track.md** — completed T1/T2/T3 work; PFM heuristics from T3 port to mobile in M3.
+- Phase 1–8 notes — original roadmap; many phases are obsoleted or simplified by the new architecture.
+
+The companion source plan is at `C:/Users/hajze/.claude/plans/look-at-what-features-enchanted-river.md` (legacy) and `C:/Users/hajze/.claude/plans/let-s-get-back-gleaming-tulip.md` (decision history). The codebase is the source of truth for "what".
 
 ## Commands
 
@@ -31,21 +53,23 @@ Run from the repo root.
 # Typecheck the whole repo (turbo-cached)
 npm run typecheck
 
-# Run all tests (turbo orchestrates api + mobile)
+# Run all tests (turbo orchestrates api + mobile + bridge)
 npm run test
 
 # Workspace-scoped variants
 npm run typecheck -w @wise-finance/api
 npm run test -w @wise-finance/api          # builds dist/ then runs node test/*.mjs
 npm run test -w @wise-finance/mobile        # jest --runInBand
+npm run test -w @wise-finance/bridge        # vitest (Cloudflare Workers pool)
 
 # After ANY change to convex/schema.ts or convex/*.ts:
 npx convex codegen                          # regenerates convex/_generated/*
 
 # Dev servers
-npm run start:api                           # Fastify + tsx watcher
+npm run start:api                           # Fastify + tsx watcher  (deprecated; M1–M5)
 npm run start                               # Expo (mobile)
-npx convex dev                              # Convex dev deployment + live codegen
+npx convex dev                              # Convex dev deployment  (deprecated; M1–M5)
+npm run dev -w @wise-finance/bridge         # wrangler dev — local Cloudflare Worker for the OAuth bridge
 ```
 
 ## Conventions
