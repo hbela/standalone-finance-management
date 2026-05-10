@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Button, Card, PaperProvider, TextInput } from "react-native-paper";
 
 import { Shell } from "./src/components/Shell";
+import { MirrorProvider } from "./src/db/MirrorContext";
 import { FinanceProvider } from "./src/state/FinanceContext";
 import { financeTheme } from "./src/theme/theme";
 
@@ -260,15 +261,17 @@ function PersistedAppShell({
     <SafeAreaProvider>
       <PaperProvider theme={financeTheme}>
         <FinanceDataErrorBoundary>
-          <FinanceProvider persistWithConvex>
-            <Shell
-              activeTab={activeTab}
-              bankConnectionReturn={bankConnectionReturn}
-              onBankConnectionReturnHandled={onBankConnectionReturnHandled}
-              onTabChange={onTabChange}
-              onSignOut={handleSignOut}
-            />
-          </FinanceProvider>
+          <MirrorProvider>
+            <FinanceProvider persistWithConvex>
+              <Shell
+                activeTab={activeTab}
+                bankConnectionReturn={bankConnectionReturn}
+                onBankConnectionReturnHandled={onBankConnectionReturnHandled}
+                onTabChange={onTabChange}
+                onSignOut={handleSignOut}
+              />
+            </FinanceProvider>
+          </MirrorProvider>
         </FinanceDataErrorBoundary>
       </PaperProvider>
     </SafeAreaProvider>

@@ -10,6 +10,8 @@ import { api } from "../convexApi";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import type { Currency } from "../data/types";
+import { useMirror } from "../db/MirrorContext";
+import type { ParityResult } from "../db/mirrorService";
 import { useFinance } from "../state/FinanceContext";
 
 type SettingsScreenProps = {
@@ -172,6 +174,8 @@ export function SettingsScreen({
         </Card.Content>
       </Card>
 
+      <DualWriteSection />
+
       <SectionTitle title="Session" />
       <Card mode="contained" style={styles.card}>
         <List.Item
@@ -188,6 +192,93 @@ export function SettingsScreen({
         ) : null}
       </Card>
     </Screen>
+  );
+}
+
+function DualWriteSection() {
+  const { status, runParityCheck } = useMirror();
+  const [isChecking, setIsChecking] = useState(false);
+  const [results, setResults] = useState<ParityResult[] | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+
+  if (!status.enabled) {
+    return null;
+  }
+
+  const onRun = async () => {
+    setIsChecking(true);
+    setCheckError(null);
+    try {
+      const next = await runParityCheck();
+      setResults(next);
+    } catch (caught) {
+      setCheckError(caught instanceof Error ? caught.message : "Parity check failed");
+      setResults(null);
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const lastMirrorLabel = status.lastMirroredAt
+    ? `Last mirrored ${new Date(status.lastMirroredAt).toLocaleTimeString()}`
+    : "No mirror runs yet";
+
+  return (
+    <>
+      <SectionTitle title="SQLite mirror (dev)" />
+      <Card mode="contained" style={styles.card}>
+        <Card.Content style={styles.content}>
+          <List.Item
+            title={status.ready ? "Mirror ready" : "Mirror initializing…"}
+            description={status.lastError ?? lastMirrorLabel}
+            left={(props) => (
+              <List.Icon
+                {...props}
+                icon={status.ready ? "database-check" : "database-sync"}
+              />
+            )}
+          />
+
+          <Button
+            mode="outlined"
+            icon="check-decagram"
+            disabled={!status.ready || isChecking}
+            loading={isChecking}
+            onPress={() => {
+              void onRun();
+            }}
+          >
+            Run parity check
+          </Button>
+
+          {checkError ? (
+            <HelperText type="error" visible>
+              {checkError}
+            </HelperText>
+          ) : null}
+
+          {results ? (
+            <View style={{ gap: 6 }}>
+              {results.map((row) => (
+                <View
+                  key={row.table}
+                  style={{ flexDirection: "row", justifyContent: "space-between" }}
+                >
+                  <Text variant="bodyMedium">{row.table}</Text>
+                  <Chip
+                    compact
+                    mode="outlined"
+                    icon={row.matches ? "check" : "alert-circle"}
+                  >
+                    {`Convex ${row.convexCount} / SQLite ${row.sqliteCount}`}
+                  </Chip>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </Card.Content>
+      </Card>
+    </>
   );
 }
 
