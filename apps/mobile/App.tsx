@@ -10,12 +10,14 @@ import { Shell } from "./src/components/Shell";
 import { MirrorProvider } from "./src/db/MirrorContext";
 import { FinanceProvider } from "./src/state/FinanceContext";
 import { financeTheme } from "./src/theme/theme";
+import { handleTinkBridgeCallback } from "./src/integrations/tinkBridge";
 
 export type AppTab = "onboarding" | "dashboard" | "transactions" | "debts" | "settings";
 export type BankConnectionReturn = {
   provider: "tink";
   status: "authorized" | "failed";
   message?: string;
+  source?: "api" | "bridge";
 };
 
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -110,8 +112,8 @@ export default function App() {
     enableAuthProviders && Boolean(clerkPublishableKey) && Boolean(convex);
 
   React.useEffect(() => {
-    const handleUrl = (url: string | null) => {
-      const nextBankConnectionReturn = parseBankConnectionReturn(url);
+    const handleUrl = async (url: string | null) => {
+      const nextBankConnectionReturn = await parseBankConnectionReturn(url);
 
       if (!nextBankConnectionReturn) {
         return;
@@ -121,8 +123,12 @@ export default function App() {
       setActiveTab("settings");
     };
 
-    void Linking.getInitialURL().then(handleUrl);
-    const subscription = Linking.addEventListener("url", ({ url }) => handleUrl(url));
+    void Linking.getInitialURL().then((url) => {
+      void handleUrl(url);
+    });
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      void handleUrl(url);
+    });
 
     return () => subscription.remove();
   }, []);
@@ -278,12 +284,29 @@ function PersistedAppShell({
   );
 }
 
-function parseBankConnectionReturn(url: string | null): BankConnectionReturn | null {
+async function parseBankConnectionReturn(url: string | null): Promise<BankConnectionReturn | null> {
   if (!url) {
     return null;
   }
 
   try {
+    const bridgeResult = await handleTinkBridgeCallback(url);
+    if (bridgeResult?.status === "authorized") {
+      return {
+        provider: "tink",
+        status: "authorized",
+        source: "bridge"
+      };
+    }
+    if (bridgeResult?.status === "failed") {
+      return {
+        provider: "tink",
+        status: "failed",
+        message: bridgeResult.message,
+        source: "bridge"
+      };
+    }
+
     const parsed = new URL(url);
     const path = parsed.pathname.replace(/^\/+/, "");
     const isBankConnectedReturn = parsed.hostname === "bank-connected" || path === "bank-connected";
@@ -297,7 +320,8 @@ function parseBankConnectionReturn(url: string | null): BankConnectionReturn | n
     if (status === "authorized") {
       return {
         provider,
-        status
+        status,
+        source: "api"
       };
     }
 
@@ -308,7 +332,8 @@ function parseBankConnectionReturn(url: string | null): BankConnectionReturn | n
         message:
           parsed.searchParams.get("message") ??
           parsed.searchParams.get("error") ??
-          "Tink authorization failed."
+          "Tink authorization failed.",
+        source: "api"
       };
     }
   } catch {

@@ -107,6 +107,37 @@ describe("GET /oauth/tink/callback", () => {
     expect(body.get("redirect_uri")).toBe("https://bridge.example.com/oauth/tink/callback");
   });
 
+  it("redirects to localhost web callback when state carries a dev web return URL", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "tink-access",
+          refresh_token: "tink-refresh",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const payload = Buffer.from(
+      JSON.stringify({ web_redirect_uri: "http://localhost:8091/oauth/tink" })
+    ).toString("base64url");
+    const state = `state-123.${payload}`;
+
+    const res = await app.request(
+      `/oauth/tink/callback?code=abc&state=${encodeURIComponent(state)}`,
+      { redirect: "manual" },
+      env
+    );
+
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    expect(location!.startsWith("http://localhost:8091/oauth/tink#")).toBe(true);
+    const fragment = new URLSearchParams(location!.split("#")[1]);
+    expect(fragment.get("state")).toBe(state);
+    expect(fragment.get("access_token")).toBe("tink-access");
+    expect(fragment.get("refresh_token")).toBe("tink-refresh");
+  });
+
   it("redirects with error fragment when Tink returns 400", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
@@ -292,5 +323,34 @@ describe("POST /oauth/wise/refresh", () => {
     const sentBody = init.body as URLSearchParams;
     expect(sentBody.get("grant_type")).toBe("refresh_token");
     expect(sentBody.get("refresh_token")).toBe("wise-refresh");
+  });
+
+  it("returns not configured when Wise OAuth secrets are absent", async () => {
+    const body = JSON.stringify({ refresh_token: "wise-refresh" });
+    const headers = await signAsDevice({
+      method: "POST",
+      path: "/oauth/wise/refresh",
+      body,
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+    const tinkOnlyEnv: Env = {
+      ...env,
+      WISE_CLIENT_ID: undefined,
+      WISE_CLIENT_SECRET: undefined,
+      WISE_REDIRECT_URI: undefined,
+    };
+
+    const res = await app.request(
+      "/oauth/wise/refresh",
+      { method: "POST", body, headers: { "Content-Type": "application/json", ...headers } },
+      tinkOnlyEnv
+    );
+
+    expect(res.status).toBe(501);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({
+      error: "provider_not_configured",
+      message: "Wise OAuth is not configured for this bridge deployment",
+    });
   });
 });

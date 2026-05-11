@@ -12,6 +12,15 @@ import { StateCard } from "../components/StateCard";
 import type { Currency } from "../data/types";
 import { useMirror } from "../db/MirrorContext";
 import type { ParityResult } from "../db/mirrorService";
+import {
+  buildTinkSandboxLink,
+  clearTinkBridgeTokens,
+  getTinkBridgeMissingConfig,
+  getTinkBridgeTokens,
+  isTinkBridgeConfigured,
+  refreshTinkBridgeTokens,
+  type TinkBridgeTokens
+} from "../integrations/tinkBridge";
 import { useFinance } from "../state/FinanceContext";
 
 type SettingsScreenProps = {
@@ -123,7 +132,8 @@ export function SettingsScreen({
         <LocalBankConnectionSection />
       )}
 
-      {isPersisted ? <AuthenticatedWiseConnectionSection /> : null}
+      {/* Wise connection is parked until the Wise bridge flow is ready. */}
+      {/* {isPersisted ? <AuthenticatedWiseConnectionSection /> : null} */}
 
       <SectionTitle title="Categories" action={`${categories.length} active`} />
       <Card mode="contained" style={styles.card}>
@@ -176,21 +186,7 @@ export function SettingsScreen({
 
       <DualWriteSection />
 
-      <SectionTitle title="Session" />
-      <Card mode="contained" style={styles.card}>
-        <List.Item
-          title={isPersisted ? "Signed in with Clerk" : "Local demo mode"}
-          description={isPersisted ? "Finance data is saved in Convex." : "Records stay in this app session."}
-          left={(props) => <List.Icon {...props} icon={isPersisted ? "shield-check" : "cellphone"} />}
-        />
-        {onSignOut ? (
-          <Card.Actions>
-            <Button icon="logout" mode="outlined" onPress={onSignOut}>
-              Sign out
-            </Button>
-          </Card.Actions>
-        ) : null}
-      </Card>
+      {/* Session/auth UI is parked while Clerk is phased out. */}
     </Screen>
   );
 }
@@ -315,6 +311,11 @@ function AuthenticatedBankConnectionSection({
           {bankConnection.error ? (
             <StateCard title="Bank connection action failed" detail={bankConnection.error} tone="error" />
           ) : null}
+          {bankConnection.tokens ? (
+            <Chip compact icon="shield-key-outline">
+              {formatTinkBridgeTokenChip(bankConnection.tokens)}
+            </Chip>
+          ) : null}
           <View style={styles.actionRow}>
             <Button
               disabled={bankConnection.isBusy}
@@ -363,7 +364,7 @@ function AuthenticatedBankConnectionSection({
               mode="outlined"
               onPress={() => bankConnection.refreshCredentials()}
             >
-              Refresh data
+              Refresh token
             </Button>
             <Button
               disabled={bankConnection.isBusy}
@@ -499,7 +500,7 @@ function LocalBankConnectionSection() {
       <Card mode="contained" style={styles.card}>
         <List.Item
           title="Tink bank aggregation"
-          description="Sign in with Clerk and Convex to connect a bank."
+          description="Bank connection is available when cloud sync is enabled."
           left={(props) => <List.Icon {...props} icon="bank-outline" />}
         />
       </Card>
@@ -533,189 +534,8 @@ type WiseSyncResponse = {
 type WiseAction = "connect" | "sync" | "disconnect" | "refresh" | null;
 
 function AuthenticatedWiseConnectionSection() {
-  const { getToken } = useAuth();
-  const [status, setStatus] = useState<WiseStatusResponse | null>(null);
-  const [action, setAction] = useState<WiseAction>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const isConfigured = Boolean(apiBaseUrl);
-
-  const wiseRequest = React.useCallback(
-    async <T,>(path: string, init?: RequestInit) => {
-      if (!apiBaseUrl) {
-        throw new Error("Set EXPO_PUBLIC_API_URL to use Wise.");
-      }
-      const token = await getToken();
-      if (!token) throw new Error("Sign in again before using Wise.");
-      const headers = new Headers(init?.headers);
-      headers.set("Authorization", `Bearer ${token}`);
-      if (init?.body !== undefined) headers.set("Content-Type", "application/json");
-      const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          payload && typeof payload === "object" && "message" in payload
-            ? String(payload.message)
-            : "Wise request failed."
-        );
-      }
-      return payload as T;
-    },
-    [getToken]
-  );
-
-  const refresh = React.useCallback(async () => {
-    setAction("refresh");
-    setError(null);
-    try {
-      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
-      setStatus(next);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Wise status request failed.");
-    } finally {
-      setAction(null);
-    }
-  }, [wiseRequest]);
-
-  useEffect(() => {
-    if (isConfigured) void refresh();
-  }, [isConfigured, refresh]);
-
-  const connect = async () => {
-    setAction("connect");
-    setError(null);
-    setInfo(null);
-    try {
-      const { url } = await wiseRequest<{ url: string }>("/integrations/wise/connect");
-      const opened = await Linking.openURL(url);
-      if (opened === false) {
-        throw new Error("Could not open Wise authorization URL.");
-      }
-      setInfo("Authorize Wise in your browser, then return to this app.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Wise connect failed.");
-    } finally {
-      setAction(null);
-    }
-  };
-
-  const sync = async () => {
-    setAction("sync");
-    setError(null);
-    setInfo(null);
-    try {
-      const result = await wiseRequest<WiseSyncResponse>("/integrations/wise/sync", {
-        method: "POST"
-      });
-      setInfo(
-        `Synced ${result.profileCount} profile${result.profileCount === 1 ? "" : "s"}, ` +
-          `${result.balanceCount} balance${result.balanceCount === 1 ? "" : "s"}; ` +
-          `imported ${result.transactionResult.imported}, ` +
-          `updated ${result.transactionResult.updated}, ` +
-          `skipped ${result.transactionResult.skipped}.`
-      );
-      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
-      setStatus(next);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Wise sync failed.");
-    } finally {
-      setAction(null);
-    }
-  };
-
-  const disconnect = async () => {
-    setAction("disconnect");
-    setError(null);
-    try {
-      await wiseRequest("/integrations/wise/disconnect", { method: "POST" });
-      const next = await wiseRequest<WiseStatusResponse>("/integrations/wise/status");
-      setStatus(next);
-      setInfo("Wise disconnected.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Wise disconnect failed.");
-    } finally {
-      setAction(null);
-    }
-  };
-
-  const isBusy = action !== null;
-  const isConnected = Boolean(status?.connected);
-  const oauthAvailable = Boolean(status?.oauthAvailable);
-  const showConnect = oauthAvailable && (status?.authMode !== "oauth" || !isConnected);
-  const helper = !isConfigured
-    ? "Set EXPO_PUBLIC_API_URL to enable Wise sync."
-    : status?.configured === false
-      ? status.message ?? "Wise is not configured on the API yet."
-      : status?.authMode === "oauth"
-        ? "OAuth-token mode. Each user has their own Wise authorization."
-        : status?.authMode === "personal_token"
-          ? "Personal-token mode (sandbox dev). Connect via OAuth once the app is registered with Wise."
-          : "Wise is not configured on the API yet.";
-
-  return (
-    <>
-      <SectionTitle
-        title="Wise"
-        action={status?.environment ? `${status.environment}` : "wise"}
-      />
-      <Card mode="contained" style={styles.card}>
-        <Card.Content style={styles.content}>
-          <List.Item
-            title="Wise wallet & statements"
-            description={helper}
-            left={(props) => <List.Icon {...props} icon="swap-horizontal-circle" />}
-          />
-          {info ? <StateCard title="Wise" detail={info} /> : null}
-          {error ? <StateCard title="Wise action failed" detail={error} tone="error" /> : null}
-          <View style={styles.actionRow}>
-            {showConnect ? (
-              <Button
-                disabled={!isConfigured || isBusy}
-                icon="bank-plus"
-                loading={action === "connect"}
-                mode="contained"
-                onPress={connect}
-              >
-                {isConnected ? "Reconnect via Wise" : "Connect via Wise"}
-              </Button>
-            ) : null}
-            <Button
-              disabled={!isConfigured || isBusy || status?.configured === false}
-              icon="sync"
-              loading={action === "sync"}
-              mode={showConnect ? "outlined" : "contained"}
-              onPress={sync}
-            >
-              Sync
-            </Button>
-            <Button
-              disabled={!isConfigured || isBusy}
-              icon="refresh"
-              loading={action === "refresh"}
-              mode="outlined"
-              onPress={refresh}
-            >
-              Status
-            </Button>
-            <Button
-              disabled={!isConfigured || !isConnected || isBusy}
-              icon="link-off"
-              loading={action === "disconnect"}
-              mode="outlined"
-              onPress={disconnect}
-            >
-              Disconnect
-            </Button>
-          </View>
-          {status?.connection?.lastSyncedAt ? (
-            <Chip compact icon="check-circle-outline">
-              Last synced {new Date(status.connection.lastSyncedAt).toLocaleString()}
-            </Chip>
-          ) : null}
-        </Card.Content>
-      </Card>
-    </>
-  );
+  // Wise connection is parked until the Wise bridge flow is ready.
+  return null;
 }
 
 type BankAction =
@@ -763,62 +583,20 @@ type TinkSyncResponse = {
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
 function useBankConnection(
-  getToken: ReturnType<typeof useAuth>["getToken"],
+  _getToken: ReturnType<typeof useAuth>["getToken"],
   isPersisted: boolean,
   bankConnectionReturn?: BankConnectionReturn | null,
   onBankConnectionReturnHandled?: () => void
 ) {
   const [statusLabel, setStatusLabel] = useState("Ready");
-  const [detail, setDetail] = useState("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
+  const [detail, setDetail] = useState("Connect a sandbox bank through Tink. Tokens will be stored on this device.");
   const [action, setAction] = useState<BankAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [needsReconnect, setNeedsReconnect] = useState(false);
   const [reconnectReason, setReconnectReason] = useState<string | null>(null);
-  const isConfigured = Boolean(apiBaseUrl);
-  const getTokenRef = React.useRef(getToken);
-
-  React.useEffect(() => {
-    getTokenRef.current = getToken;
-  }, [getToken]);
-
-  const request = React.useCallback(
-    async <T,>(path: string, init?: RequestInit) => {
-      if (!apiBaseUrl) {
-        throw new Error("Set EXPO_PUBLIC_API_URL to use bank connections.");
-      }
-
-      const token = await getTokenRef.current();
-      if (!token) {
-        throw new Error("Sign in again before using bank connections.");
-      }
-
-      const headers = new Headers(init?.headers);
-      headers.set("Authorization", `Bearer ${token}`);
-
-      if (init?.body !== undefined) {
-        headers.set("Content-Type", "application/json");
-      }
-
-      const response = await fetch(`${apiBaseUrl}${path}`, {
-        ...init,
-        headers
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          payload && typeof payload === "object" && "message" in payload
-            ? String(payload.message)
-            : "Bank connection request failed."
-        );
-      }
-
-      return payload as T;
-    },
-    []
-  );
-
+  const [tokens, setTokens] = useState<TinkBridgeTokens | null>(null);
+  const isConfigured = isTinkBridgeConfigured();
   const run = React.useCallback(
     async (nextAction: BankAction, task: () => Promise<void>) => {
       setAction(nextAction);
@@ -836,48 +614,33 @@ function useBankConnection(
   );
 
   const loadStatus = React.useCallback(async () => {
-    const status = await request<TinkStatusResponse>("/integrations/tink/status");
-    const isReconnect = status.status === "reconnect_required";
-    setNeedsReconnect(isReconnect);
-    setReconnectReason(isReconnect ? status.lastError ?? null : null);
+    const stored = await getTinkBridgeTokens();
+    setTokens(stored);
+    setNeedsReconnect(false);
+    setReconnectReason(null);
+    setIsConnected(Boolean(stored));
+    setStatusLabel(stored ? "Sandbox token stored" : "Ready");
 
-    setIsConnected(status.connected && !isReconnect);
-
-    if (isReconnect) {
-      setStatusLabel("Reconnect required");
-      setDetail(
-        status.lastError
-          ? `Tink reported an authentication error: ${status.lastError}`
-          : "Tink credentials need to be re-authorized to keep syncing."
-      );
+    if (stored) {
+      setDetail(formatTinkBridgeTokenDetail(stored));
       return;
     }
 
-    setStatusLabel(status.connected ? "Connected" : "Ready");
-
-    if (status.connected) {
-      const syncDetail = status.lastSyncedAt
-        ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}.`
-        : "Tink authorization completed. Sync to import accounts and posted transactions.";
-      setDetail(syncDetail);
+    if (!isConfigured) {
+      setDetail(`Set ${getTinkBridgeMissingConfig().join(", ")} in .env.local.`);
       return;
     }
 
-    if (status.lastError) {
-      setDetail(status.lastError);
-      return;
-    }
-
-    setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
-  }, [request]);
+    setDetail("Connect a sandbox bank through Tink. Tokens will be stored on this device.");
+  }, [isConfigured]);
 
   React.useEffect(() => {
-    if (!isPersisted || !isConfigured) {
+    if (!isPersisted) {
       return;
     }
 
     void loadStatus().catch(() => undefined);
-  }, [isConfigured, isPersisted, loadStatus]);
+  }, [isPersisted, loadStatus]);
 
   React.useEffect(() => {
     if (!bankConnectionReturn) {
@@ -885,9 +648,13 @@ function useBankConnection(
     }
 
     if (bankConnectionReturn.status === "authorized") {
-      setStatusLabel("Authorized");
+      setStatusLabel(bankConnectionReturn.source === "bridge" ? "Sandbox token stored" : "Authorized");
       setIsConnected(true);
-      setDetail("Tink authorization completed. Sync to import accounts and posted transactions.");
+      setDetail(
+        bankConnectionReturn.source === "bridge"
+          ? "Tink sandbox authorization completed. Tokens are stored on this device."
+          : "Tink authorization completed. Sync to import accounts and posted transactions."
+      );
       void loadStatus().catch(() => undefined);
     } else {
       setStatusLabel("Authorization failed");
@@ -904,7 +671,7 @@ function useBankConnection(
 
   return {
     action,
-    error: !isConfigured && isPersisted ? "Set EXPO_PUBLIC_API_URL in .env.local." : error,
+    error: !isConfigured && isPersisted ? `Set ${getTinkBridgeMissingConfig().join(", ")} in .env.local.` : error,
     icon: needsReconnect ? "bank-remove" : isConnected ? "bank-check" : "bank-outline",
     isBusy: action !== null,
     isConnected,
@@ -912,41 +679,40 @@ function useBankConnection(
     reconnectReason,
     statusLabel: isConfigured ? statusLabel : "Not configured",
     detail: getBankConnectionDetail(detail, isPersisted, isConfigured),
+    tokens,
     refresh,
     connect: () =>
       run("connect", async () => {
-        const response = await request<{ url: string }>("/integrations/tink/link");
-        setStatusLabel(needsReconnect ? "Reconnect started" : "Authorization started");
+        const url = await buildTinkSandboxLink();
+        setStatusLabel("Authorization started");
         setIsConnected(false);
-        await Linking.openURL(response.url);
+        await Linking.openURL(url);
       }),
     sync: () =>
       run("sync", async () => {
-        const result = await request<TinkSyncResponse>("/integrations/tink/sync", { method: "POST" });
-        setIsConnected(true);
-        setNeedsReconnect(false);
-        setReconnectReason(null);
-        setStatusLabel("Synced");
-        setDetail(formatSyncResult(result));
+        setStatusLabel("Token ready");
+        setDetail("Direct mobile-side Tink account and transaction sync is the next bridge-track step.");
       }),
     disconnect: () =>
       run("disconnect", async () => {
-        await request("/integrations/tink/disconnect", { method: "POST" });
+        await clearTinkBridgeTokens();
+        setTokens(null);
         setIsConnected(false);
         setNeedsReconnect(false);
         setReconnectReason(null);
-        setStatusLabel("Disconnected");
-        setDetail("Connect a bank through Tink, then sync read-only accounts and posted transactions.");
+        setStatusLabel("Disconnected locally");
+        setDetail("Stored Tink sandbox tokens were removed from this device.");
       }),
-    refreshCredentials: (credentialsId?: string) =>
+    refreshCredentials: () =>
       run("refreshCredentials", async () => {
-        const response = await request<TinkRefreshCredentialsResponse>(
-          "/integrations/tink/refresh-credentials",
-          {
-            method: "POST",
-            body: credentialsId ? JSON.stringify({ credentialsId }) : undefined
-          }
-        );
+        const next = await refreshTinkBridgeTokens();
+        setTokens(next);
+        setIsConnected(true);
+        setStatusLabel("Token refreshed");
+        setDetail(formatTinkBridgeTokenDetail(next));
+        const response: { method: "server_refresh" | "link"; url?: string; errorCode?: string } = {
+          method: "server_refresh"
+        };
 
         if (response.method === "link" && response.url) {
           setStatusLabel("Re-authorization required");
@@ -959,18 +725,15 @@ function useBankConnection(
           return;
         }
 
-        setStatusLabel("Refreshing");
+        setStatusLabel("Token refreshed");
         setDetail(
-          "Refresh requested. Tink will deliver fresh data shortly; sync to see updates."
+          formatTinkBridgeTokenDetail(next)
         );
       }),
-    extendConsent: (credentialsId?: string) =>
+    extendConsent: () =>
       run("extendConsent", async () => {
-        const path = credentialsId
-          ? `/integrations/tink/extend-consent?credentialsId=${encodeURIComponent(credentialsId)}`
-          : "/integrations/tink/extend-consent";
-        const response = await request<{ url: string }>(path);
-        await Linking.openURL(response.url);
+        const url = await buildTinkSandboxLink();
+        await Linking.openURL(url);
       })
   };
 }
@@ -987,17 +750,33 @@ function formatSyncResult(result: TinkSyncResponse) {
   ].join(" ");
 }
 
+function formatTinkBridgeTokenChip(tokens: TinkBridgeTokens) {
+  const receivedAt = new Date(tokens.receivedAt).toLocaleTimeString();
+  return tokens.refreshToken ? `Sandbox token stored ${receivedAt}` : `Access token stored ${receivedAt}`;
+}
+
+function formatTinkBridgeTokenDetail(tokens: TinkBridgeTokens) {
+  const receivedAt = new Date(tokens.receivedAt).toLocaleString();
+  const expiry = tokens.expiresIn
+    ? ` Access token expires in about ${Math.round(tokens.expiresIn / 60)} minutes.`
+    : "";
+  const refresh = tokens.refreshToken
+    ? " Refresh is available through the Cloudflare bridge."
+    : " No refresh token was returned.";
+  return `Tink sandbox token stored on this device at ${receivedAt}.${expiry}${refresh}`;
+}
+
 function getBankConnectionDetail(
   detail: string,
   isPersisted: boolean,
   isConfigured: boolean
 ) {
   if (!isPersisted) {
-    return "Sign in with Clerk and Convex to connect a bank.";
+    return "Bank connection is available when cloud sync is enabled.";
   }
 
   if (!isConfigured) {
-    return "Set EXPO_PUBLIC_API_URL to enable the API-backed Tink flow.";
+    return `Set ${getTinkBridgeMissingConfig().join(", ")} to enable the Tink sandbox bridge.`;
   }
 
   return detail;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildOAuthDeepLink, buildOAuthErrorDeepLink } from "../src/lib/deepLink.js";
+import {
+  buildOAuthDeepLink,
+  buildOAuthErrorDeepLink,
+  buildOAuthWebRedirect,
+} from "../src/lib/deepLink.js";
 
 describe("deepLink", () => {
   it("builds a tink success deep link with all token fields in the fragment", () => {
@@ -38,6 +42,24 @@ describe("deepLink", () => {
     expect(fragment.get("access_token")).toBe("only-access");
     expect(fragment.has("refresh_token")).toBe(false);
     expect(fragment.has("expires_in")).toBe(false);
+  });
+
+  it("builds a web callback redirect with token fields in the fragment", () => {
+    const link = buildOAuthWebRedirect({
+      returnUrl: "http://localhost:8091/oauth/tink",
+      provider: "tink",
+      state: "abc123",
+      payload: {
+        access_token: "tok-access",
+        refresh_token: "tok-refresh",
+      },
+    });
+
+    expect(link.startsWith("http://localhost:8091/oauth/tink#")).toBe(true);
+    const fragment = new URLSearchParams(link.split("#")[1]);
+    expect(fragment.get("state")).toBe("abc123");
+    expect(fragment.get("access_token")).toBe("tok-access");
+    expect(fragment.get("refresh_token")).toBe("tok-refresh");
   });
 
   it("builds an error deep link preserving state", () => {

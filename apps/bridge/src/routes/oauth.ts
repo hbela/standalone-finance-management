@@ -3,6 +3,7 @@ import type { Env } from "../env.js";
 import {
   buildOAuthDeepLink,
   buildOAuthErrorDeepLink,
+  buildOAuthWebRedirect,
   type OAuthProviderName,
 } from "../lib/deepLink.js";
 import { jsonResponse } from "../lib/http.js";
@@ -57,6 +58,19 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
 
     try {
       const tokens = await handlers.exchange(c.env, code);
+      const webReturnUrl = parseLocalWebReturnUrl(state);
+      if (webReturnUrl) {
+        return c.redirect(
+          buildOAuthWebRedirect({
+            returnUrl: webReturnUrl,
+            provider,
+            state,
+            payload: tokens,
+          }),
+          302
+        );
+      }
+
       return c.redirect(
         buildOAuthDeepLink({
           scheme: c.env.APP_DEEP_LINK_SCHEME,
@@ -132,4 +146,37 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
   });
 
   return app;
+}
+
+function parseLocalWebReturnUrl(state: string) {
+  const encodedPayload = state.split(".")[1];
+  if (!encodedPayload) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as {
+      web_redirect_uri?: unknown;
+    };
+    if (typeof payload.web_redirect_uri !== "string") {
+      return null;
+    }
+
+    const url = new URL(payload.web_redirect_uri);
+    const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (!isLocalhost || url.protocol !== "http:") {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function base64UrlDecode(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.length % 4 === 0 ? normalized : normalized + "=".repeat(4 - (normalized.length % 4));
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
