@@ -1,11 +1,19 @@
 import React, { createContext, type ReactNode, useContext, useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { eq } from "drizzle-orm";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-import { api } from "../convexApi";
 import { defaultCategories } from "../data/categories";
-import { accounts as initialAccounts, liabilities as initialLiabilities, transactions as initialTransactions } from "../data/mockFinance";
 import type { Account, Category, Currency, ImportBatch, Liability, Transaction, TransactionType } from "../data/types";
+import { ensureMirrorDatabaseReady } from "../db/client";
+import type { AccountRow, CategoryRow, ImportBatchRow, LiabilityRow, TransactionRow } from "../db/mappers";
+import {
+  accountsRepo,
+  categoriesRepo,
+  importBatchesRepo,
+  liabilitiesRepo,
+  transactionsRepo
+} from "../db/repositories";
+import * as schema from "../db/schema";
 import {
   arePotentialDuplicateTransactions,
   createTransactionDedupeHash,
@@ -109,11 +117,6 @@ type FinanceContextValue = {
 };
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
-type ConvexAccount = Doc<"accounts">;
-type ConvexCategory = Doc<"categories">;
-type ConvexTransaction = Doc<"transactions">;
-type ConvexLiability = Doc<"liabilities">;
-type ConvexImportBatch = Doc<"importBatches">;
 
 export function FinanceProvider({
   children,
@@ -130,9 +133,9 @@ export function FinanceProvider({
 }
 
 function LocalFinanceProvider({ children }: { children: ReactNode }) {
-  const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
-  const [liabilities, setLiabilities] = useState<Liability[]>(initialLiabilities);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [liabilities, setLiabilities] = useState<Liability[]>([]);
   const [categories, setCategories] = useState<Category[]>(defaultCategories);
   const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
     baseCurrency: "EUR",
@@ -378,136 +381,83 @@ function LocalFinanceProvider({ children }: { children: ReactNode }) {
 }
 
 function PersistentFinanceProvider({ children }: { children: ReactNode }) {
-  const convexAccounts = useQuery(api.accounts.listForCurrent);
-  const convexCategories = useQuery(api.categories.listForCurrent);
-  const convexTransactions = useQuery(api.transactions.listForCurrent);
-  const convexLiabilities = useQuery(api.liabilities.listForCurrent);
-  const convexImportBatches = useQuery(api.importBatches.listForCurrent);
-  const convexUser = useQuery(api.users.current);
-  const createAccount = useMutation(api.accounts.createManual);
-  const updateConvexAccount = useMutation(api.accounts.update);
-  const archiveConvexAccount = useMutation(api.accounts.archive);
-  const createConvexCategory = useMutation(api.categories.create);
-  const archiveConvexCategory = useMutation(api.categories.archive);
-  const createTransaction = useMutation(api.transactions.createManual);
-  const importConvexTransactions = useMutation(api.transactions.importForAccount);
-  const updateConvexTransaction = useMutation(api.transactions.update);
-  const archiveConvexTransaction = useMutation(api.transactions.archive);
-  const revertConvexImportBatch = useMutation(api.importBatches.revert);
-  const createLiability = useMutation(api.liabilities.createManual);
-  const updateConvexLiability = useMutation(api.liabilities.update);
-  const archiveConvexLiability = useMutation(api.liabilities.archive);
-  const updateConvexUser = useMutation(api.users.upsertCurrent);
+  const queryClient = useQueryClient();
+  const accountsQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.accounts,
+    queryFn: async () => accountsRepo.list(await ensureMirrorDatabaseReady())
+  });
+  const categoriesQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.categories,
+    queryFn: async () => categoriesRepo.list(await ensureMirrorDatabaseReady())
+  });
+  const transactionsQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.transactions,
+    queryFn: async () => transactionsRepo.list(await ensureMirrorDatabaseReady())
+  });
+  const liabilitiesQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.liabilities,
+    queryFn: async () => liabilitiesRepo.list(await ensureMirrorDatabaseReady())
+  });
+  const importBatchesQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.importBatches,
+    queryFn: async () => importBatchesRepo.list(await ensureMirrorDatabaseReady())
+  });
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
+    baseCurrency: "EUR",
+    locale: "en-US"
+  });
   const isLoading =
-    convexAccounts === undefined ||
-    convexCategories === undefined ||
-    convexTransactions === undefined ||
-    convexLiabilities === undefined ||
-    convexImportBatches === undefined ||
-    convexUser === undefined;
+    accountsQuery.isLoading ||
+    categoriesQuery.isLoading ||
+    transactionsQuery.isLoading ||
+    liabilitiesQuery.isLoading ||
+    importBatchesQuery.isLoading;
 
   const accounts = useMemo<Account[]>(
     () =>
-      ((convexAccounts ?? []) as ConvexAccount[]).map((account) => ({
-        id: account._id,
-        source: account.source,
-        bankId: account.bankKey,
-        providerAccountId: account.providerAccountId,
-        name: account.name,
-        currency: account.currency,
-        type: account.type,
-        currentBalance: account.currentBalance,
-        lastSyncedAt: account.lastSyncedAt ? formatSyncLabel(account.lastSyncedAt) : undefined
-      })),
-    [convexAccounts]
+      (accountsQuery.data ?? [])
+        .filter((account) => !account.archivedAt)
+        .map(accountRowToAccount),
+    [accountsQuery.data]
   );
 
   const transactions = useMemo<Transaction[]>(
     () =>
-      ((convexTransactions ?? []) as ConvexTransaction[])
-        .map((transaction) => ({
-          id: transaction._id,
-          accountId: transaction.accountId,
-          source: transaction.source,
-          postedAt: new Date(transaction.postedAt).toISOString().slice(0, 10),
-          amount: transaction.amount,
-          currency: transaction.currency,
-          baseCurrencyAmount: transaction.baseCurrencyAmount ?? toBaseCurrency(transaction.amount, transaction.currency),
-          description: transaction.description,
-          merchant: transaction.merchant ?? transaction.description,
-          category: transaction.categoryId ?? "Other",
-          type: transaction.type,
-          isRecurring: transaction.isRecurring,
-          isExcludedFromReports: transaction.isExcludedFromReports,
-          transferMatchId: transaction.transferMatchId,
-          dedupeHash: transaction.dedupeHash,
-          status: transaction.status,
-          notes: transaction.notes
-        }))
+      (transactionsQuery.data ?? [])
+        .filter((transaction) => !transaction.archivedAt)
+        .map(transactionRowToTransaction)
         .sort((left, right) => right.postedAt.localeCompare(left.postedAt)),
-    [convexTransactions]
+    [transactionsQuery.data]
   );
 
   const categories = useMemo<Category[]>(
-    () =>
-      convexCategories === undefined
-        ? defaultCategories
-        : ((convexCategories ?? []) as Array<ConvexCategory | Category>).map((category) => ({
-            id: "id" in category ? category.id : category.name,
-            name: category.name,
-            isDefault: "isDefault" in category ? category.isDefault : false
-          })),
-    [convexCategories]
+    () => mergeDefaultAndSQLiteCategories(categoriesQuery.data ?? []),
+    [categoriesQuery.data]
   );
 
   const liabilities = useMemo<Liability[]>(
     () =>
-      ((convexLiabilities ?? []) as ConvexLiability[])
-        .map((liability) => ({
-          id: liability._id,
-          name: liability.name,
-          institution: liability.institution,
-          type: liability.type,
-          currency: liability.currency,
-          originalPrincipal: liability.originalPrincipal,
-          outstandingBalance: liability.outstandingBalance,
-          interestRate: liability.interestRate,
-          paymentAmount: liability.paymentAmount,
-          paymentFrequency: liability.paymentFrequency,
-          nextDueDate: liability.nextDueDate,
-          rateType: liability.rateType
-        }))
+      (liabilitiesQuery.data ?? [])
+        .filter((liability) => !liability.archivedAt)
+        .map(liabilityRowToLiability)
         .sort((left, right) => left.nextDueDate.localeCompare(right.nextDueDate)),
-    [convexLiabilities]
+    [liabilitiesQuery.data]
   );
 
   const importBatches = useMemo<ImportBatch[]>(
     () =>
-      ((convexImportBatches ?? []) as ConvexImportBatch[])
-        .map((importBatch) => ({
-          id: importBatch._id,
-          accountId: importBatch.accountId,
-          source: importBatch.source,
-          status: importBatch.status,
-          sourceName: importBatch.sourceName,
-          rowCount: importBatch.rowCount,
-          importedCount: importBatch.importedCount,
-          skippedCount: importBatch.skippedCount,
-          columnMapping: importBatch.columnMapping,
-          dateFormat: importBatch.dateFormat,
-          createdAt: new Date(importBatch.createdAt).toISOString()
-        }))
+      (importBatchesQuery.data ?? [])
+        .map(importBatchRowToImportBatch)
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
-    [convexImportBatches]
+    [importBatchesQuery.data]
   );
 
-  const settings = useMemo(
-    () => ({
-      baseCurrency: (convexUser?.baseCurrency ?? "EUR") as Currency,
-      locale: convexUser?.locale ?? "en-US"
-    }),
-    [convexUser]
+  const refreshSQLiteQueries = React.useCallback(
+    async () => {
+      await queryClient.invalidateQueries({ queryKey: sqliteFinanceQueryKeys.root });
+    },
+    [queryClient]
   );
 
   const value = useMemo<FinanceContextValue>(
@@ -523,38 +473,104 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
       error,
       clearError: () => setError(null),
       addAccount: async (input) => {
-        await runMutation(setError, () =>
-          createAccount({
-            source: input.source,
-            bankKey: input.bankId,
-            name: input.name,
-            currency: input.currency,
-            type: input.type,
-            currentBalance: input.currentBalance
-          })
-        );
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          const now = Date.now();
+          await accountsRepo.upsert(db, [
+            {
+              id: `account-${now}`,
+              userId: localSQLiteUserId,
+              source: input.source,
+              bankId: input.bankId ?? null,
+              bankKey: input.bankId ?? null,
+              providerAccountId: null,
+              credentialsId: null,
+              name: input.name,
+              currency: input.currency,
+              type: input.type,
+              currentBalance: input.currentBalance,
+              availableBalance: null,
+              institutionName: null,
+              holderName: null,
+              iban: null,
+              bban: null,
+              lastSyncedAt: now,
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       updateAccount: async (input) => {
-        await runMutation(setError, () =>
-          updateConvexAccount({
-            accountId: input.id as Id<"accounts">,
-            source: input.source,
-            bankKey: input.bankId,
-            name: input.name,
-            currency: input.currency,
-            type: input.type,
-            currentBalance: input.currentBalance
-          })
-        );
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          const current = accountsQuery.data?.find((account) => account.id === input.id);
+          const now = Date.now();
+          await accountsRepo.upsert(db, [
+            {
+              id: input.id,
+              userId: current?.userId ?? localSQLiteUserId,
+              source: input.source,
+              bankId: input.bankId ?? current?.bankId ?? null,
+              bankKey: input.bankId ?? current?.bankKey ?? null,
+              providerAccountId: current?.providerAccountId ?? null,
+              credentialsId: current?.credentialsId ?? null,
+              name: input.name,
+              currency: input.currency,
+              type: input.type,
+              currentBalance: input.currentBalance,
+              availableBalance: current?.availableBalance ?? null,
+              institutionName: current?.institutionName ?? null,
+              holderName: current?.holderName ?? null,
+              iban: current?.iban ?? null,
+              bban: current?.bban ?? null,
+              lastSyncedAt: current?.lastSyncedAt ?? null,
+              archivedAt: current?.archivedAt ?? null,
+              createdAt: current?.createdAt ?? now,
+              updatedAt: now
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       archiveAccount: async (accountId) => {
-        await runMutation(setError, () => archiveConvexAccount({ accountId: accountId as Id<"accounts"> }));
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          await db.delete(schema.transactions).where(eq(schema.transactions.accountId, accountId));
+          await db.delete(schema.accounts).where(eq(schema.accounts.id, accountId));
+          await refreshSQLiteQueries();
+        });
       },
       addCategory: async (name) => {
-        await runMutation(setError, () => createConvexCategory({ name }));
+        const normalizedName = name.trim().replace(/\s+/g, " ");
+        if (!normalizedName) return;
+        await runMutation(setError, async () => {
+          const now = Date.now();
+          await categoriesRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              id: `category-${normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+              userId: localSQLiteUserId,
+              name: normalizedName,
+              tinkCategoryCode: null,
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       archiveCategory: async (name) => {
-        await runMutation(setError, () => archiveConvexCategory({ name }));
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          const row = categoriesQuery.data?.find((category) => category.name === name);
+          if (row) {
+            await db.delete(schema.categories).where(eq(schema.categories.id, row.id));
+            await refreshSQLiteQueries();
+          }
+        });
       },
       addTransaction: async (input) => {
         const account = accounts.find((candidate) => candidate.id === input.accountId);
@@ -563,31 +579,46 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
         }
 
         const signedAmount = normalizeAmount(input.amount, input.type);
-        await runMutation(setError, () =>
-          createTransaction({
-            accountId: account.id as Id<"accounts">,
-            source: account.source,
-            postedAt: Date.parse(input.postedAt),
-            amount: signedAmount,
-            currency: account.currency,
-            baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
-            description: input.description,
-            merchant: input.merchant,
-            categoryId: input.category,
-            type: input.type,
-            isRecurring: input.isRecurring,
-            isExcludedFromReports: input.type === "transfer",
-            transferMatchId: undefined,
-            dedupeHash: createTransactionDedupeHash({
+        await runMutation(setError, async () => {
+          const now = Date.now();
+          await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              id: `transaction-${now}`,
+              userId: localSQLiteUserId,
               accountId: account.id,
-              postedAt: input.postedAt,
+              source: account.source,
+              providerTransactionId: null,
+              postedAt: Date.parse(input.postedAt),
               amount: signedAmount,
               currency: account.currency,
+              baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
               description: input.description,
-              merchant: input.merchant
-            })
-          })
-        );
+              merchant: input.merchant,
+              categoryId: input.category,
+              tinkCategoryCode: null,
+              importBatchId: null,
+              type: input.type,
+              isRecurring: input.isRecurring,
+              recurringGroupId: null,
+              isExcludedFromReports: input.type === "transfer",
+              transferMatchId: null,
+              dedupeHash: createTransactionDedupeHash({
+                accountId: account.id,
+                postedAt: input.postedAt,
+                amount: signedAmount,
+                currency: account.currency,
+                description: input.description,
+                merchant: input.merchant
+              }),
+              status: "booked",
+              notes: null,
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       importTransactions: async (accountId, rows, metadata) => {
         const account = accounts.find((candidate) => candidate.id === accountId);
@@ -595,16 +626,34 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
           return { imported: 0, skipped: rows.length };
         }
 
-        return await runMutation(setError, () =>
-          importConvexTransactions({
-            accountId: account.id as Id<"accounts">,
-            sourceName: metadata?.sourceName,
-            rowCount: metadata?.rowCount ?? rows.length,
-            columnMapping: metadata?.columnMapping ?? {},
-            dateFormat: metadata?.dateFormat ?? "auto",
-            transactions: rows.map((row) => ({
-              accountId: account.id as Id<"accounts">,
+        return await runMutation(setError, async () => {
+          const now = Date.now();
+          const batchId = `import-${now}`;
+          await importBatchesRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              id: batchId,
+              userId: localSQLiteUserId,
+              accountId: account.id,
+              source: "csv",
+              status: "completed",
+              sourceName: metadata?.sourceName ?? null,
+              rowCount: metadata?.rowCount ?? rows.length,
+              importedCount: rows.length,
+              skippedCount: 0,
+              columnMapping: JSON.stringify(metadata?.columnMapping ?? {}),
+              dateFormat: metadata?.dateFormat ?? "auto",
+              createdAt: now,
+              updatedAt: now
+            }
+          ]);
+          await transactionsRepo.upsert(
+            await ensureMirrorDatabaseReady(),
+            rows.map((row, index) => ({
+              id: `transaction-${now}-${index}`,
+              userId: localSQLiteUserId,
+              accountId: account.id,
               source: account.source,
+              providerTransactionId: null,
               postedAt: Date.parse(row.postedAt),
               amount: row.amount,
               currency: row.currency,
@@ -612,113 +661,249 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
               description: row.description,
               merchant: row.merchant,
               categoryId: row.category,
+              tinkCategoryCode: null,
+              importBatchId: batchId,
               type: row.type,
               isRecurring: false,
+              recurringGroupId: null,
               isExcludedFromReports: row.type === "transfer",
+              transferMatchId: null,
               dedupeHash: row.dedupeHash,
-              notes: "Imported from CSV"
+              status: "booked",
+              notes: "Imported from CSV",
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now
             }))
-          })
-        );
+          );
+          await refreshSQLiteQueries();
+          return { imported: rows.length, skipped: 0, batchId };
+        });
       },
       updateTransaction: async (input) => {
-        await runMutation(setError, () =>
-          updateConvexTransaction({
-            transactionId: input.id as Id<"transactions">,
-            categoryId: input.category,
-            type: input.type,
-            merchant: input.merchant,
-            description: input.description,
-            notes: input.notes,
-            isRecurring: input.isRecurring,
-            isExcludedFromReports: input.isExcludedFromReports,
-            transferMatchId: input.transferMatchId === null ? null : (input.transferMatchId as Id<"transactions"> | undefined)
-          })
-        );
+        await runMutation(setError, async () => {
+          const current = transactionsQuery.data?.find((transaction) => transaction.id === input.id);
+          if (!current) return;
+          await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              ...current,
+              categoryId: input.transferMatchId ? "Internal transfer" : input.category,
+              type: input.transferMatchId ? "transfer" : input.type,
+              merchant: input.merchant,
+              description: input.description,
+              notes: input.notes ?? null,
+              isRecurring: input.isRecurring,
+              isExcludedFromReports: input.transferMatchId ? true : input.isExcludedFromReports,
+              transferMatchId: input.transferMatchId ?? null,
+              updatedAt: Date.now()
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       archiveTransaction: async (transactionId) => {
-        await runMutation(setError, () => archiveConvexTransaction({ transactionId: transactionId as Id<"transactions"> }));
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          await db.delete(schema.transactions).where(eq(schema.transactions.id, transactionId));
+          await refreshSQLiteQueries();
+        });
       },
       revertImportBatch: async (importBatchId) => {
-        await runMutation(setError, () =>
-          revertConvexImportBatch({ importBatchId: importBatchId as Id<"importBatches"> })
-        );
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          await db.delete(schema.transactions).where(eq(schema.transactions.importBatchId, importBatchId));
+          await db.delete(schema.importBatches).where(eq(schema.importBatches.id, importBatchId));
+          await refreshSQLiteQueries();
+        });
       },
       addLiability: async (input) => {
-        await runMutation(setError, () =>
-          createLiability({
-            name: input.name,
-            institution: input.institution,
-            type: input.type,
-            currency: input.currency,
-            originalPrincipal: input.originalPrincipal,
-            outstandingBalance: input.outstandingBalance,
-            interestRate: input.interestRate,
-            paymentAmount: input.paymentAmount,
-            paymentFrequency: "monthly",
-            nextDueDate: input.nextDueDate,
-            rateType: input.rateType
-          })
-        );
+        await runMutation(setError, async () => {
+          const now = Date.now();
+          await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              id: `liability-${now}`,
+              userId: localSQLiteUserId,
+              linkedAccountId: null,
+              ...input,
+              paymentFrequency: "monthly",
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       updateLiability: async (input) => {
-        await runMutation(setError, () =>
-          updateConvexLiability({
-            liabilityId: input.id as Id<"liabilities">,
-            name: input.name,
-            institution: input.institution,
-            type: input.type,
-            currency: input.currency,
-            originalPrincipal: input.originalPrincipal,
-            outstandingBalance: input.outstandingBalance,
-            interestRate: input.interestRate,
-            paymentAmount: input.paymentAmount,
-            paymentFrequency: input.paymentFrequency,
-            nextDueDate: input.nextDueDate,
-            rateType: input.rateType
-          })
-        );
+        await runMutation(setError, async () => {
+          const current = liabilitiesQuery.data?.find((liability) => liability.id === input.id);
+          await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [
+            {
+              id: input.id,
+              userId: current?.userId ?? localSQLiteUserId,
+              linkedAccountId: current?.linkedAccountId ?? null,
+              name: input.name,
+              institution: input.institution,
+              type: input.type,
+              currency: input.currency,
+              originalPrincipal: input.originalPrincipal,
+              outstandingBalance: input.outstandingBalance,
+              interestRate: input.interestRate,
+              paymentAmount: input.paymentAmount,
+              paymentFrequency: input.paymentFrequency,
+              nextDueDate: input.nextDueDate,
+              rateType: input.rateType,
+              archivedAt: current?.archivedAt ?? null,
+              createdAt: current?.createdAt ?? Date.now(),
+              updatedAt: Date.now()
+            }
+          ]);
+          await refreshSQLiteQueries();
+        });
       },
       archiveLiability: async (liabilityId) => {
-        await runMutation(setError, () => archiveConvexLiability({ liabilityId: liabilityId as Id<"liabilities"> }));
+        await runMutation(setError, async () => {
+          const db = await ensureMirrorDatabaseReady();
+          await db.delete(schema.liabilities).where(eq(schema.liabilities.id, liabilityId));
+          await refreshSQLiteQueries();
+        });
       },
       updateSettings: async (input) => {
-        await runMutation(setError, () =>
-          updateConvexUser({
-            country: "HU",
-            locale: input.locale,
-            baseCurrency: input.baseCurrency
-          })
-        );
+        setSettings(input);
       }
     }),
     [
       accounts,
-      archiveConvexAccount,
-      archiveConvexCategory,
-      archiveConvexLiability,
-      archiveConvexTransaction,
-      createAccount,
-      createConvexCategory,
-      createLiability,
-      createTransaction,
+      accountsQuery.data,
+      categories,
+      categoriesQuery.data,
       error,
-      importConvexTransactions,
       importBatches,
       isLoading,
+      liabilitiesQuery.data,
       liabilities,
-      categories,
-      revertConvexImportBatch,
+      refreshSQLiteQueries,
       settings,
       transactions,
-      updateConvexAccount,
-      updateConvexLiability,
-      updateConvexUser,
-      updateConvexTransaction
+      transactionsQuery.data
     ]
   );
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
+}
+
+export const sqliteFinanceQueryKeys = {
+  root: ["sqlite-finance"] as const,
+  accounts: ["sqlite-finance", "accounts"] as const,
+  categories: ["sqlite-finance", "categories"] as const,
+  transactions: ["sqlite-finance", "transactions"] as const,
+  liabilities: ["sqlite-finance", "liabilities"] as const,
+  importBatches: ["sqlite-finance", "import-batches"] as const
+};
+
+const localSQLiteUserId = "device-local-user";
+
+function accountRowToAccount(row: AccountRow): Account {
+  return {
+    id: row.id,
+    source: row.source as Account["source"],
+    bankId: row.bankKey ?? row.bankId ?? undefined,
+    providerAccountId: row.providerAccountId ?? undefined,
+    name: row.name,
+    currency: row.currency as Currency,
+    type: row.type as Account["type"],
+    currentBalance: row.currentBalance,
+    lastSyncedAt: row.lastSyncedAt ? formatSyncLabel(row.lastSyncedAt) : undefined
+  };
+}
+
+function transactionRowToTransaction(row: TransactionRow): Transaction {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    source: row.source as Account["source"],
+    postedAt: new Date(row.postedAt).toISOString().slice(0, 10),
+    amount: row.amount,
+    currency: row.currency as Currency,
+    baseCurrencyAmount: row.baseCurrencyAmount ?? toBaseCurrency(row.amount, row.currency as Currency),
+    description: row.description,
+    merchant: row.merchant ?? row.description,
+    category: row.categoryId ?? "Other",
+    type: row.type as TransactionType,
+    isRecurring: row.isRecurring,
+    isExcludedFromReports: row.isExcludedFromReports,
+    transferMatchId: row.transferMatchId ?? undefined,
+    dedupeHash: row.dedupeHash,
+    status: row.status === "pending" ? "pending" : "booked",
+    notes: row.notes ?? undefined
+  };
+}
+
+function mergeDefaultAndSQLiteCategories(rows: CategoryRow[]): Category[] {
+  const archivedNames = new Set(
+    rows.filter((row) => row.archivedAt).map((row) => normalizeCategoryName(row.name))
+  );
+  const custom = rows
+    .filter((row) => !row.archivedAt)
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      isDefault: false
+    }));
+  const customNames = new Set(custom.map((category) => normalizeCategoryName(category.name)));
+
+  return [
+    ...defaultCategories.filter(
+      (category) =>
+        !archivedNames.has(normalizeCategoryName(category.name)) &&
+        !customNames.has(normalizeCategoryName(category.name))
+    ),
+    ...custom
+  ];
+}
+
+function liabilityRowToLiability(row: LiabilityRow): Liability {
+  return {
+    id: row.id,
+    name: row.name,
+    institution: row.institution,
+    type: row.type as Liability["type"],
+    currency: row.currency as Currency,
+    originalPrincipal: row.originalPrincipal,
+    outstandingBalance: row.outstandingBalance,
+    interestRate: row.interestRate,
+    paymentAmount: row.paymentAmount,
+    paymentFrequency: row.paymentFrequency as Liability["paymentFrequency"],
+    nextDueDate: row.nextDueDate,
+    rateType: row.rateType as Liability["rateType"]
+  };
+}
+
+function importBatchRowToImportBatch(row: ImportBatchRow): ImportBatch {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    source: "csv",
+    status: row.status as ImportBatch["status"],
+    sourceName: row.sourceName ?? undefined,
+    rowCount: row.rowCount,
+    importedCount: row.importedCount,
+    skippedCount: row.skippedCount,
+    columnMapping: parseJsonRecord(row.columnMapping),
+    dateFormat: row.dateFormat,
+    createdAt: new Date(row.createdAt).toISOString()
+  };
+}
+
+function parseJsonRecord(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, string>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export function useFinance() {

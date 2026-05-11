@@ -269,6 +269,14 @@ export const expenseProfiles = sqliteTable(
   })
 );
 
+export const fxRates = sqliteTable("fx_rates", {
+  baseCurrency: text("base_currency").primaryKey(),
+  ratesJson: text("rates_json").notNull(),
+  source: text("source").notNull(),
+  fetchedAt: integer("fetched_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const ALL_MIRRORED_TABLES = [
   users,
   accounts,

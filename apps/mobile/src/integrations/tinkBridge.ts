@@ -77,22 +77,26 @@ export async function buildTinkSandboxLink(config = tinkBridgeConfig) {
     throw new Error(`Set ${getTinkBridgeMissingConfig(config).join(", ")} in .env.local.`);
   }
 
-  const state = createState(config);
+  const runtimeConfig = {
+    ...config,
+    webRedirectUri: getRuntimeWebRedirectUri(config)
+  };
+  const state = createState(runtimeConfig);
   await writeStorage(pendingStateStorageKey, state);
 
-  const url = new URL(config.linkBaseUrl);
-  url.searchParams.set("client_id", config.clientId);
-  url.searchParams.set("redirect_uri", config.redirectUri);
+  const url = new URL(runtimeConfig.linkBaseUrl);
+  url.searchParams.set("client_id", runtimeConfig.clientId);
+  url.searchParams.set("redirect_uri", runtimeConfig.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", config.scopes.join(","));
+  url.searchParams.set("scope", runtimeConfig.scopes.join(","));
   url.searchParams.set("state", state);
-  url.searchParams.set("market", config.market);
-  url.searchParams.set("locale", config.locale);
-  if (config.testMode) {
+  url.searchParams.set("market", runtimeConfig.market);
+  url.searchParams.set("locale", runtimeConfig.locale);
+  if (runtimeConfig.testMode) {
     url.searchParams.set("test", "true");
   }
-  if (config.inputProvider) {
-    url.searchParams.set("input_provider", config.inputProvider);
+  if (runtimeConfig.inputProvider) {
+    url.searchParams.set("input_provider", runtimeConfig.inputProvider);
   }
   return url.toString();
 }
@@ -110,6 +114,19 @@ export async function handleTinkBridgeCallback(url: string): Promise<TinkBridgeC
   const state = fragment.get("state");
   const pendingState = await readStorage(pendingStateStorageKey);
   if (!state || !pendingState || state !== pendingState) {
+    const accessToken = fragment.get("access_token");
+    const stored = await getTinkBridgeTokens();
+    if (accessToken && stored?.accessToken === accessToken) {
+      return { status: "authorized", tokens: stored };
+    }
+
+    if (Platform.OS === "web" && accessToken && isCurrentWebRedirectState(state)) {
+      const tokens = tokensFromFragment(fragment);
+      await saveTinkBridgeTokens(tokens);
+      await deleteStorage(pendingStateStorageKey);
+      return { status: "authorized", tokens };
+    }
+
     return {
       status: "failed",
       message: "Tink authorization state did not match this device."
@@ -134,14 +151,7 @@ export async function handleTinkBridgeCallback(url: string): Promise<TinkBridgeC
     };
   }
 
-  const tokens: TinkBridgeTokens = {
-    accessToken,
-    refreshToken: fragment.get("refresh_token") ?? undefined,
-    tokenType: fragment.get("token_type") ?? undefined,
-    expiresIn: parseInteger(fragment.get("expires_in")),
-    scope: fragment.get("scope") ?? undefined,
-    receivedAt: Date.now()
-  };
+  const tokens = tokensFromFragment(fragment);
   await saveTinkBridgeTokens(tokens);
   return { status: "authorized", tokens };
 }
@@ -272,6 +282,51 @@ function createState(config = tinkBridgeConfig) {
   return `${nonce}.${base64UrlEncode(payload)}`;
 }
 
+function getRuntimeWebRedirectUri(config = tinkBridgeConfig) {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return config.webRedirectUri;
+  }
+
+  return new URL("/oauth/tink", window.location.origin).toString();
+}
+
+function isCurrentWebRedirectState(state: string | null) {
+  if (!state || typeof window === "undefined") {
+    return false;
+  }
+
+  const [, encodedPayload] = state.split(".", 2);
+  if (!encodedPayload) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload))) as {
+      web_redirect_uri?: unknown;
+    };
+    if (typeof payload.web_redirect_uri !== "string") {
+      return false;
+    }
+
+    const expected = new URL("/oauth/tink", window.location.origin);
+    const actual = new URL(payload.web_redirect_uri);
+    return actual.origin === expected.origin && actual.pathname === expected.pathname;
+  } catch {
+    return false;
+  }
+}
+
+function tokensFromFragment(fragment: URLSearchParams): TinkBridgeTokens {
+  return {
+    accessToken: fragment.get("access_token") ?? "",
+    refreshToken: fragment.get("refresh_token") ?? undefined,
+    tokenType: fragment.get("token_type") ?? undefined,
+    expiresIn: parseInteger(fragment.get("expires_in")),
+    scope: fragment.get("scope") ?? undefined,
+    receivedAt: Date.now()
+  };
+}
+
 function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -311,6 +366,10 @@ function base64Encode(bytes: Uint8Array) {
 }
 
 function base64Decode(value: string) {
+  return base64UrlDecode(value);
+}
+
+function base64UrlDecode(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.length % 4 === 0 ? normalized : normalized + "=".repeat(4 - (normalized.length % 4));
   const clean = padded.replace(/=+$/, "");

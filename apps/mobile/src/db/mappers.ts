@@ -190,6 +190,14 @@ export type ExpenseProfileRow = {
   updatedAt: number;
 };
 
+export type FxRateRow = {
+  baseCurrency: string;
+  ratesJson: string;
+  source: string;
+  fetchedAt: number;
+  updatedAt: number;
+};
+
 const nullable = <T>(value: T | undefined): T | null => (value === undefined ? null : value);
 
 export function userToRow(doc: Doc<"users">): UserRow {

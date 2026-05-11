@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "convex/react";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
@@ -21,7 +22,9 @@ import {
   refreshTinkBridgeTokens,
   type TinkBridgeTokens
 } from "../integrations/tinkBridge";
+import { syncTinkToSQLite, type TinkMobileSyncResult } from "../integrations/tinkMobileSync";
 import { useFinance } from "../state/FinanceContext";
+import { sqliteFinanceQueryKeys } from "../state/FinanceContext";
 
 type SettingsScreenProps = {
   bankConnectionReturn?: BankConnectionReturn | null;
@@ -588,6 +591,15 @@ function useBankConnection(
   bankConnectionReturn?: BankConnectionReturn | null,
   onBankConnectionReturnHandled?: () => void
 ) {
+  const queryClient = useQueryClient();
+  const tinkSync = useMutation({
+    mutationFn: syncTinkToSQLite,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: sqliteFinanceQueryKeys.root });
+      setStatusLabel("Synced to SQLite");
+      setDetail(formatMobileSyncResult(result));
+    }
+  });
   const [statusLabel, setStatusLabel] = useState("Ready");
   const [detail, setDetail] = useState("Connect a sandbox bank through Tink. Tokens will be stored on this device.");
   const [action, setAction] = useState<BankAction>(null);
@@ -622,6 +634,7 @@ function useBankConnection(
     setStatusLabel(stored ? "Sandbox token stored" : "Ready");
 
     if (stored) {
+      setError(null);
       setDetail(formatTinkBridgeTokenDetail(stored));
       return;
     }
@@ -648,6 +661,7 @@ function useBankConnection(
     }
 
     if (bankConnectionReturn.status === "authorized") {
+      setError(null);
       setStatusLabel(bankConnectionReturn.source === "bridge" ? "Sandbox token stored" : "Authorized");
       setIsConnected(true);
       setDetail(
@@ -658,8 +672,8 @@ function useBankConnection(
       void loadStatus().catch(() => undefined);
     } else {
       setStatusLabel("Authorization failed");
-      setIsConnected(false);
       setError(bankConnectionReturn.message ?? "Tink authorization failed.");
+      void loadStatus().catch(() => undefined);
     }
 
     onBankConnectionReturnHandled?.();
@@ -690,8 +704,9 @@ function useBankConnection(
       }),
     sync: () =>
       run("sync", async () => {
-        setStatusLabel("Token ready");
-        setDetail("Direct mobile-side Tink account and transaction sync is the next bridge-track step.");
+        const result = await tinkSync.mutateAsync();
+        setStatusLabel("Synced to SQLite");
+        setDetail(formatMobileSyncResult(result));
       }),
     disconnect: () =>
       run("disconnect", async () => {
@@ -747,6 +762,14 @@ function formatSyncResult(result: TinkSyncResponse) {
     `Sync complete ${new Date().toLocaleString()}.`,
     `${accountChangeCount} account ${accountChangeCount === 1 ? "change" : "changes"} (${result.accounts.createdCount} new, ${result.accounts.updatedCount} updated, ${result.accounts.skippedCount} skipped).`,
     `${result.transactions.importedCount} transaction${result.transactions.importedCount === 1 ? "" : "s"} imported (${result.transactions.fetchedCount} fetched, ${transactionSkippedCount} skipped).`
+  ].join(" ");
+}
+
+function formatMobileSyncResult(result: TinkMobileSyncResult) {
+  return [
+    `Sync complete ${new Date().toLocaleString()}.`,
+    `${result.accounts.importedCount} account${result.accounts.importedCount === 1 ? "" : "s"} written to SQLite (${result.accounts.fetchedCount} fetched, ${result.accounts.skippedCount} skipped).`,
+    `${result.transactions.importedCount} transaction${result.transactions.importedCount === 1 ? "" : "s"} written to SQLite (${result.transactions.fetchedCount} fetched, ${result.transactions.skippedCount} skipped).`
   ].join(" ");
 }
 

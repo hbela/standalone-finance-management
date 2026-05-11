@@ -21,6 +21,7 @@
     "@expo/vector-icons": "^15.0.3",
     "@noble/curves": "^1.9.7",
     "@tanstack/react-form": "^1.29.1",
+    "@tanstack/react-query": "^5.100.10",
     "convex": "^1.37.0",
     "drizzle-orm": "^0.45.2",
     "expo": "^54.0.23",

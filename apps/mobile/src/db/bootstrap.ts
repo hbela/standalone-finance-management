@@ -212,4 +212,12 @@ CREATE TABLE IF NOT EXISTS expense_profiles (
 );
 CREATE INDEX IF NOT EXISTS expense_profiles_by_user_id ON expense_profiles(user_id);
 CREATE INDEX IF NOT EXISTS expense_profiles_by_user_group_key ON expense_profiles(user_id, group_key);
+
+CREATE TABLE IF NOT EXISTS fx_rates (
+  base_currency TEXT PRIMARY KEY,
+  rates_json TEXT NOT NULL,
+  source TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;

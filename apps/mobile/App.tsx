@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ClerkProvider, useAuth, useSignIn, useSignUp } from "@clerk/clerk-expo";
 import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth } from "convex/react";
 import * as SecureStore from "expo-secure-store";
@@ -25,6 +26,7 @@ const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
 const enableAuthProviders = process.env.EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS === "true";
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 const clerkConvexJwtTemplate = "convex-wise-finance";
+const queryClient = new QueryClient();
 
 const tokenCache = {
   async getToken(key: string) {
@@ -152,13 +154,15 @@ export default function App() {
   }
 
   const localAppShell = (
-    <SafeAreaProvider>
-      <PaperProvider theme={financeTheme}>
-        <FinanceProvider persistWithConvex={shouldUseAuthProviders}>
-          <Shell activeTab={activeTab} onTabChange={setActiveTab} />
-        </FinanceProvider>
-      </PaperProvider>
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <PaperProvider theme={financeTheme}>
+          <FinanceProvider persistWithConvex={shouldUseAuthProviders}>
+            <Shell activeTab={activeTab} onTabChange={setActiveTab} />
+          </FinanceProvider>
+        </PaperProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 
   if (!shouldUseAuthProviders || !clerkPublishableKey || !convex) {
@@ -167,16 +171,18 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
-        <ConvexProviderWithAuth client={convex} useAuth={useClerkConvexAuth}>
-          <PersistedAppShell
-            activeTab={activeTab}
-            bankConnectionReturn={bankConnectionReturn}
-            onBankConnectionReturnHandled={() => setBankConnectionReturn(null)}
-            onTabChange={setActiveTab}
-          />
-        </ConvexProviderWithAuth>
-      </ClerkProvider>
+      <QueryClientProvider client={queryClient}>
+        <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
+          <ConvexProviderWithAuth client={convex} useAuth={useClerkConvexAuth}>
+            <PersistedAppShell
+              activeTab={activeTab}
+              bankConnectionReturn={bankConnectionReturn}
+              onBankConnectionReturnHandled={() => setBankConnectionReturn(null)}
+              onTabChange={setActiveTab}
+            />
+          </ConvexProviderWithAuth>
+        </ClerkProvider>
+      </QueryClientProvider>
     </AppErrorBoundary>
   );
 }

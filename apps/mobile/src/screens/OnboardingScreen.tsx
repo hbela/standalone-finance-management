@@ -3,7 +3,6 @@ import { StyleSheet, View } from "react-native";
 import {
   Button,
   Card,
-  Checkbox,
   Divider,
   List,
   SegmentedButtons,
@@ -33,7 +32,6 @@ const setupSteps = [
   "Create secure account",
   "Choose country and base currency",
   "Select local bank",
-  "Connect Wise or skip",
   "Import statement or add account"
 ];
 
@@ -41,7 +39,6 @@ export function OnboardingScreen() {
   const { accounts } = useFinance();
   const [country, setCountry] = useState("HU");
   const [currency, setCurrency] = useState("EUR");
-  const [wiseConsent, setWiseConsent] = useState(true);
   const [addAccountVisible, setAddAccountVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
@@ -80,7 +77,7 @@ export function OnboardingScreen() {
             Build the user's financial context before the dashboard opens.
           </Text>
           <Text variant="bodyMedium" style={styles.muted}>
-            Clerk, Convex, Fastify, and Wise can plug into these boundaries as backend services arrive.
+            Local bank import and on-device storage plug into these boundaries as backend services arrive.
           </Text>
         </Card.Content>
       </Card>
@@ -117,27 +114,6 @@ export function OnboardingScreen() {
             {index < availableBanks.length - 1 ? <Divider /> : null}
           </View>
         ))}
-      </Card>
-
-      <SectionTitle title="Wise Connection" />
-      <Card mode="contained" style={styles.card}>
-        <Card.Content style={styles.formContent}>
-          <View style={styles.consentRow}>
-            <Checkbox
-              status={wiseConsent ? "checked" : "unchecked"}
-              onPress={() => setWiseConsent((current) => !current)}
-            />
-            <View style={styles.consentText}>
-              <Text variant="titleSmall">Read balances, statements, rates, and quote previews</Text>
-              <Text variant="bodySmall" style={styles.muted}>
-                Transfer execution remains disabled until approval and explicit confirmation flows exist.
-              </Text>
-            </View>
-          </View>
-          <Button mode="contained" icon="link-variant" disabled={!wiseConsent}>
-            Connect Wise
-          </Button>
-        </Card.Content>
       </Card>
 
       <SectionTitle title="MVP Readiness" />
@@ -201,13 +177,4 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: "center"
   },
-  consentRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 8
-  },
-  consentText: {
-    flex: 1,
-    paddingTop: 8
-  }
 });

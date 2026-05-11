@@ -41,7 +41,6 @@ export function DashboardScreen() {
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
   const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
-  const unreconciledAccounts = reconciliations.filter((reconciliation) => reconciliation.needsReconciliation);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
   const incomeStreamDocs = useQuery(api.incomeStreams.listForCurrent) as IncomeStream[] | undefined;
@@ -91,14 +90,6 @@ export function DashboardScreen() {
         <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from Convex." loading />
       ) : null}
       {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
-      {unreconciledAccounts.length > 0 ? (
-        <StateCard
-          title="Balance reconciliation needed"
-          detail={`${unreconciledAccounts.length} ${unreconciledAccounts.length === 1 ? "account has" : "accounts have"} a stored balance that differs from its ledger total.`}
-          tone="warning"
-        />
-      ) : null}
-
       <Card mode="contained" style={styles.hero}>
         <Card.Content>
           <Text variant="labelLarge" style={styles.heroLabel}>
@@ -113,9 +104,6 @@ export function DashboardScreen() {
           <View style={styles.heroActions}>
             <Button mode="contained-tonal" icon="bank-plus" onPress={() => setAddAccountVisible(true)}>
               Add account
-            </Button>
-            <Button mode="outlined" icon="sync">
-              Sync Wise
             </Button>
           </View>
         </Card.Content>

@@ -212,11 +212,5 @@ export const alerts: Alert[] = [
     title: "Mortgage due soon",
     detail: "OTP payment is due on May 15.",
     tone: "warning"
-  },
-  {
-    id: "al2",
-    title: "Wise healthy",
-    detail: "Balances and rates synced successfully.",
-    tone: "info"
   }
 ];
