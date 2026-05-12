@@ -7,6 +7,7 @@ import {
   refreshWiseAccessToken,
 } from "./lib/providers.js";
 import { createOAuthRoutes } from "./routes/oauth.js";
+import { createTinkDataProxyRoutes } from "./routes/tinkProxy.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -27,6 +28,8 @@ app.route(
     refresh: refreshWiseAccessToken,
   })
 );
+
+app.route("/tink/data/v2", createTinkDataProxyRoutes());
 
 app.notFound((c) => c.json({ error: "not_found" }, 404));
 

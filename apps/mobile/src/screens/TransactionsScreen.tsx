@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, Searchbar, SegmentedButtons, Text } from "react-native-paper";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { AddTransactionDialog } from "../components/AddTransactionDialog";
 import { EditTransactionDialog } from "../components/EditTransactionDialog";
@@ -9,14 +9,17 @@ import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
-import { api } from "../convexApi";
-import type { Doc } from "../../../../convex/_generated/dataModel";
-import type { Transaction, TransactionType } from "../data/types";
-import { useFinance } from "../state/FinanceContext";
+import type { RecurringSubscriptionRow } from "../db/mappers";
+import {
+  archiveRecurringSubscription,
+  confirmRecurringSubscription,
+  dismissRecurringSubscription,
+  listActiveRecurringSubscriptions,
+} from "../services/sqlitePfm";
+import type { Currency, Transaction, TransactionType } from "../data/types";
+import { sqliteFinanceQueryKeys, useFinance } from "../state/FinanceContext";
 import { formatSignedMoney } from "../utils/money";
 import { detectRecurringCandidates, type RecurringCandidate } from "../utils/recurring";
-
-type RecurringSubscription = Doc<"recurringSubscriptions">;
 
 const filterOptions = [
   { value: "all", label: "All" },
@@ -33,6 +36,7 @@ export function TransactionsScreen() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [dismissedRecurringCandidates, setDismissedRecurringCandidates] = useState<string[]>([]);
+  const queryClient = useQueryClient();
 
   const visibleTransactions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -59,9 +63,11 @@ export function TransactionsScreen() {
     [dismissedRecurringCandidates, transactions]
   );
 
-  const subscriptionDocs = useQuery(api.recurringSubscriptions.listForCurrent) as
-    | RecurringSubscription[]
-    | undefined;
+  const subscriptionQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.recurringSubscriptions,
+    queryFn: () => listActiveRecurringSubscriptions()
+  });
+  const subscriptionDocs = subscriptionQuery.data as RecurringSubscriptionRow[] | undefined;
   const subscriptions = useMemo(
     () =>
       (subscriptionDocs ?? [])
@@ -69,10 +75,6 @@ export function TransactionsScreen() {
         .sort((left, right) => (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0)),
     [subscriptionDocs]
   );
-  const dismissSubscription = useMutation(api.recurringSubscriptions.dismiss);
-  const archiveSubscription = useMutation(api.recurringSubscriptions.archive);
-  const confirmSubscription = useMutation(api.recurringSubscriptions.confirm);
-
   const confirmRecurringCandidate = async (candidate: RecurringCandidate) => {
     await Promise.all(
       candidate.transactions.map((transaction) =>
@@ -94,7 +96,7 @@ export function TransactionsScreen() {
   return (
     <Screen>
       {isLoading ? (
-        <StateCard title="Loading ledger" detail="Fetching your transactions from Convex." loading />
+        <StateCard title="Loading ledger" detail="Fetching your transactions from SQLite." loading />
       ) : null}
       {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
 
@@ -125,18 +127,18 @@ export function TransactionsScreen() {
             left={(props) => <List.Icon {...props} icon="repeat-variant" />}
           />
           {subscriptions.map((subscription, index) => (
-            <View key={subscription._id}>
+            <View key={subscription.id}>
               <List.Item
                 title={subscription.merchant}
-                description={`${formatSubscriptionFrequency(subscription.frequency)} . ${subscription.transactionCount} payments . next around ${formatSubscriptionDate(subscription.nextExpectedAt)}`}
+                description={`${formatSubscriptionFrequency(subscription.frequency)} . ${subscription.transactionCount} payments . next around ${formatSubscriptionDate(subscription.nextExpectedAt ?? undefined)}`}
                 left={(props) => <List.Icon {...props} icon="calendar-clock" />}
                 right={() => (
                   <View style={styles.amountBlock}>
                     <Text variant="titleSmall" style={subscription.averageAmount > 0 ? styles.positive : styles.negative}>
-                      {formatSignedMoney(subscription.averageAmount, subscription.currency)}
+                      {formatSignedMoney(subscription.averageAmount, asCurrency(subscription.currency))}
                     </Text>
                     <Text variant="bodySmall" style={styles.muted}>
-                      {formatSignedMoney(subscription.monthlyAmount, subscription.currency)} / mo
+                      {formatSignedMoney(subscription.monthlyAmount, asCurrency(subscription.currency))} / mo
                     </Text>
                   </View>
                 )}
@@ -156,7 +158,7 @@ export function TransactionsScreen() {
                     compact
                     mode="contained-tonal"
                     icon="check"
-                    onPress={() => void confirmSubscription({ subscriptionId: subscription._id })}
+                    onPress={() => void runPFMAction(() => confirmRecurringSubscription(subscription.id), queryClient)}
                   >
                     Confirm
                   </Button>
@@ -165,7 +167,7 @@ export function TransactionsScreen() {
                   compact
                   mode="outlined"
                   icon="archive-outline"
-                  onPress={() => void archiveSubscription({ subscriptionId: subscription._id })}
+                  onPress={() => void runPFMAction(() => archiveRecurringSubscription(subscription.id), queryClient)}
                 >
                   Archive
                 </Button>
@@ -173,7 +175,7 @@ export function TransactionsScreen() {
                   compact
                   mode="text"
                   icon="close"
-                  onPress={() => void dismissSubscription({ subscriptionId: subscription._id })}
+                  onPress={() => void runPFMAction(() => dismissRecurringSubscription(subscription.id), queryClient)}
                 >
                   Dismiss
                 </Button>
@@ -311,7 +313,12 @@ function formatInterval(interval: RecurringCandidate["interval"]) {
   }
 }
 
-function formatSubscriptionFrequency(frequency: RecurringSubscription["frequency"]) {
+async function runPFMAction(action: () => Promise<void>, queryClient: QueryClient) {
+  await action();
+  await queryClient.invalidateQueries({ queryKey: sqliteFinanceQueryKeys.root });
+}
+
+function formatSubscriptionFrequency(frequency: RecurringSubscriptionRow["frequency"]) {
   switch (frequency) {
     case "weekly":
       return "Weekly";
@@ -331,6 +338,10 @@ function formatSubscriptionDate(epochMs: number | undefined) {
     return "—";
   }
   return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+function asCurrency(value: string): Currency {
+  return value === "HUF" || value === "USD" || value === "GBP" ? value : "EUR";
 }
 
 function iconForType(type: TransactionType) {

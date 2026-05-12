@@ -14,4 +14,20 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules")
 ];
 
+const previousEnhanceMiddleware = config.server?.enhanceMiddleware;
+config.server = {
+  ...config.server,
+  enhanceMiddleware: (middleware, server) => {
+    const enhancedMiddleware = previousEnhanceMiddleware
+      ? previousEnhanceMiddleware(middleware, server)
+      : middleware;
+
+    return (req, res, next) => {
+      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+      res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+      return enhancedMiddleware(req, res, next);
+    };
+  }
+};
+
 module.exports = config;

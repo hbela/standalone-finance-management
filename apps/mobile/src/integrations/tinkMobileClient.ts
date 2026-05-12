@@ -12,13 +12,25 @@ export type TinkAmount = {
   currencyCode?: string;
 };
 
-export type TinkAccountIdentifier = {
+// Tink v2 returns `identifiers` as an object keyed by identifier type
+// (`{ iban: { iban: "..." }, bban: { bban: "..." }, sortCode: {...}, ... }`),
+// not an array. We tolerate the array shape too in case a future Tink response
+// changes back, but the object shape is what the live sandbox actually sends.
+export type TinkAccountIdentifierEntry = {
   scheme?: string;
   type?: string;
   value?: string;
   iban?: string | { iban?: string };
   bban?: string | { bban?: string };
 };
+
+export type TinkAccountIdentifiers =
+  | {
+      iban?: string | { iban?: string };
+      bban?: string | { bban?: string };
+      [key: string]: unknown;
+    }
+  | TinkAccountIdentifierEntry[];
 
 export type TinkAccount = {
   id: string;
@@ -28,7 +40,7 @@ export type TinkAccount = {
   financialInstitutionName?: string;
   holderName?: string;
   holders?: Array<{ name?: string }>;
-  identifiers?: TinkAccountIdentifier[];
+  identifiers?: TinkAccountIdentifiers;
   credentialsId?: string;
   credentials?: { id?: string };
   balances?: {
@@ -63,7 +75,17 @@ export type TinkTransaction = {
   status?: string;
 };
 
-const tinkApiBaseUrl = "https://api.tink.com";
+// Data calls are routed through the Cloudflare Worker bridge instead of api.tink.com
+// directly. On native this is a thin extra hop; on web it's the only path that works,
+// because the browser blocks cross-origin calls to api.tink.com. The bridge proxy is
+// stateless — it forwards Authorization: Bearer upstream and streams the response back.
+function getTinkApiBaseUrl(): string {
+  const bridgeUrl = process.env.EXPO_PUBLIC_TINK_BRIDGE_URL?.replace(/\/+$/, "");
+  if (!bridgeUrl) {
+    throw new Error("Set EXPO_PUBLIC_TINK_BRIDGE_URL in .env.local to enable Tink sync.");
+  }
+  return `${bridgeUrl}/tink`;
+}
 
 export async function listTinkAccounts(accessToken: string) {
   const payload = await tinkGet<{ accounts: TinkAccount[] }>(accessToken, "/data/v2/accounts");
@@ -77,7 +99,7 @@ export async function listTinkTransactions(
   accessToken: string,
   params: { from?: string; to?: string } = {}
 ) {
-  const url = new URL(`${tinkApiBaseUrl}/data/v2/transactions`);
+  const url = new URL(`${getTinkApiBaseUrl()}/data/v2/transactions`);
   if (params.from) {
     url.searchParams.set("from", params.from);
   }
@@ -110,7 +132,7 @@ async function tinkGet<T>(accessToken: string, pathOrUrl: string | URL): Promise
   const url =
     pathOrUrl instanceof URL
       ? pathOrUrl.toString()
-      : `${tinkApiBaseUrl}${pathOrUrl}`;
+      : `${getTinkApiBaseUrl()}${pathOrUrl}`;
   const response = await fetch(url, {
     method: "GET",
     headers: {

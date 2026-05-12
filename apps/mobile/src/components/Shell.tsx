@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { BottomNavigation, IconButton, Text } from "react-native-paper";
+import { BottomNavigation, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { AppTab, BankConnectionReturn } from "../../App";
@@ -15,7 +15,6 @@ type ShellProps = {
   bankConnectionReturn?: BankConnectionReturn | null;
   onBankConnectionReturnHandled?: () => void;
   onTabChange: (tab: AppTab) => void;
-  onSignOut?: () => void;
 };
 
 const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocusedIcon: string }> = [
@@ -55,8 +54,7 @@ export function Shell({
   activeTab,
   bankConnectionReturn,
   onBankConnectionReturnHandled,
-  onTabChange,
-  onSignOut
+  onTabChange
 }: ShellProps) {
   const renderScene = React.useCallback(({ route }: { route: { key: AppTab } }) => {
     switch (route.key) {
@@ -73,13 +71,12 @@ export function Shell({
           <SettingsScreen
             bankConnectionReturn={bankConnectionReturn}
             onBankConnectionReturnHandled={onBankConnectionReturnHandled}
-            onSignOut={onSignOut}
           />
         );
       default:
         return null;
     }
-  }, [bankConnectionReturn, onBankConnectionReturnHandled, onSignOut]);
+  }, [bankConnectionReturn, onBankConnectionReturnHandled]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -90,15 +87,6 @@ export function Shell({
           </Text>
           <Text variant="titleLarge">Multi-currency cockpit</Text>
         </View>
-        {onSignOut ? (
-          <IconButton
-            accessibilityLabel="Sign out"
-            icon="logout"
-            mode="contained-tonal"
-            onPress={onSignOut}
-            size={20}
-          />
-        ) : null}
       </View>
       <BottomNavigation
         navigationState={{

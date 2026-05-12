@@ -2,6 +2,8 @@ import type { Currency, TransactionType } from "../data/types";
 import { ensureMirrorDatabaseReady } from "../db/client";
 import type { AccountRow, TransactionRow } from "../db/mappers";
 import { accountsRepo, transactionsRepo } from "../db/repositories";
+import { isWebFallbackStorageEnabled, webFallbackStore } from "../db/webFallbackStore";
+import { runSQLitePFMDetection } from "../services/sqlitePfm";
 import { createTransactionDedupeHash } from "../utils/csvImport";
 import { toBaseCurrency } from "../utils/finance";
 import { getTinkBridgeTokens } from "./tinkBridge";
@@ -26,6 +28,7 @@ export type TinkMobileSyncResult = {
     fetchedCount: number;
     importedCount: number;
     skippedCount: number;
+    skipReasons: Record<string, number>;
   };
 };
 
@@ -35,10 +38,38 @@ export async function syncTinkToSQLite(): Promise<TinkMobileSyncResult> {
     throw new Error("Connect Tink before syncing.");
   }
 
-  const db = await ensureMirrorDatabaseReady();
   const now = Date.now();
   const tinkAccounts = await listTinkAccounts(tokens.accessToken);
   const accountSync = normalizeTinkAccounts(tinkAccounts, now);
+  if (isWebFallbackStorageEnabled()) {
+    await webFallbackStore.accounts.upsert(accountSync.accounts);
+
+    const accountRows = await webFallbackStore.accounts.list();
+    const accountIdByProviderId = new Map(
+      accountRows
+        .filter((account) => account.providerAccountId)
+        .map((account) => [account.providerAccountId as string, account.id])
+    );
+    const tinkTransactions = await listTinkTransactions(tokens.accessToken, getDefaultTransactionWindow(now));
+    const transactionSync = normalizeTinkTransactions(tinkTransactions, accountIdByProviderId, now);
+    await webFallbackStore.transactions.upsert(transactionSync.transactions);
+
+    return {
+      accounts: {
+        fetchedCount: tinkAccounts.length,
+        importedCount: accountSync.accounts.length,
+        skippedCount: accountSync.skippedCount
+      },
+      transactions: {
+        fetchedCount: tinkTransactions.length,
+        importedCount: transactionSync.transactions.length,
+        skippedCount: transactionSync.skippedCount,
+        skipReasons: transactionSync.skipReasons
+      }
+    };
+  }
+
+  const db = await ensureMirrorDatabaseReady();
   await accountsRepo.upsert(db, accountSync.accounts);
 
   const accountRows = await accountsRepo.list(db);
@@ -48,9 +79,10 @@ export async function syncTinkToSQLite(): Promise<TinkMobileSyncResult> {
       .map((account) => [account.providerAccountId as string, account.id])
   );
 
-  const tinkTransactions = await listTinkTransactions(tokens.accessToken);
+  const tinkTransactions = await listTinkTransactions(tokens.accessToken, getDefaultTransactionWindow(now));
   const transactionSync = normalizeTinkTransactions(tinkTransactions, accountIdByProviderId, now);
   await transactionsRepo.upsert(db, transactionSync.transactions);
+  await runSQLitePFMDetection(db);
 
   return {
     accounts: {
@@ -61,7 +93,8 @@ export async function syncTinkToSQLite(): Promise<TinkMobileSyncResult> {
     transactions: {
       fetchedCount: tinkTransactions.length,
       importedCount: transactionSync.transactions.length,
-      skippedCount: transactionSync.skippedCount
+      skippedCount: transactionSync.skippedCount,
+      skipReasons: transactionSync.skipReasons
     }
   };
 }
@@ -130,6 +163,7 @@ function normalizeTinkTransactions(
 ) {
   const normalized: TransactionRow[] = [];
   let skippedCount = 0;
+  const skipReasons: Record<string, number> = {};
 
   for (const transaction of transactions) {
     const providerAccountId = transaction.accountId ?? transaction.account?.id;
@@ -150,8 +184,24 @@ function normalizeTinkTransactions(
       transaction.reference ??
       "Tink transaction";
 
-    if (!transaction.id || !providerAccountId || !accountId || amount === null || !currency || postedAt === null) {
+    const skipReasonsForThis = [
+      !transaction.id ? "missing_id" : null,
+      !providerAccountId ? "missing_provider_account_id" : null,
+      providerAccountId && !accountId ? "unknown_provider_account_id" : null,
+      amount === null ? "unparseable_amount" : null,
+      !currency ? `unsupported_currency:${rawCurrency ?? "none"}` : null,
+      postedAt === null ? "unparseable_date" : null,
+    ].filter((reason): reason is string => Boolean(reason));
+
+    if (skipReasonsForThis.length > 0) {
       skippedCount += 1;
+      for (const reason of skipReasonsForThis) {
+        skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+      }
+      continue;
+    }
+
+    if (!transaction.id || !providerAccountId || !accountId || amount === null || !currency || postedAt === null) {
       continue;
     }
 
@@ -196,28 +246,59 @@ function normalizeTinkTransactions(
     });
   }
 
-  return { transactions: normalized, skippedCount };
+  return { transactions: normalized, skippedCount, skipReasons };
+}
+
+function getDefaultTransactionWindow(now: number) {
+  const to = new Date(now);
+  const from = new Date(now);
+  from.setUTCFullYear(from.getUTCFullYear() - 2);
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10)
+  };
 }
 
 function extractAccountIdentifiers(identifiers: TinkAccount["identifiers"]) {
-  let iban: string | null = null;
-  let bban: string | null = null;
-
-  for (const identifier of identifiers ?? []) {
-    const scheme = identifier.scheme?.toLowerCase() ?? identifier.type?.toLowerCase();
-    const ibanCandidate = typeof identifier.iban === "string" ? identifier.iban : identifier.iban?.iban;
-    const bbanCandidate = typeof identifier.bban === "string" ? identifier.bban : identifier.bban?.bban;
-
-    if (!iban && (scheme === "iban" || ibanCandidate)) {
-      iban = (ibanCandidate ?? identifier.value ?? "").trim() || null;
-    }
-
-    if (!bban && (scheme === "bban" || bbanCandidate)) {
-      bban = (bbanCandidate ?? identifier.value ?? "").trim() || null;
-    }
+  if (!identifiers || typeof identifiers !== "object") {
+    return { iban: null, bban: null };
   }
 
-  return { iban, bban };
+  if (Array.isArray(identifiers)) {
+    let iban: string | null = null;
+    let bban: string | null = null;
+
+    for (const identifier of identifiers) {
+      const scheme = identifier.scheme?.toLowerCase() ?? identifier.type?.toLowerCase();
+      const ibanCandidate = typeof identifier.iban === "string" ? identifier.iban : identifier.iban?.iban;
+      const bbanCandidate = typeof identifier.bban === "string" ? identifier.bban : identifier.bban?.bban;
+
+      if (!iban && (scheme === "iban" || ibanCandidate)) {
+        iban = (ibanCandidate ?? identifier.value ?? "").trim() || null;
+      }
+
+      if (!bban && (scheme === "bban" || bbanCandidate)) {
+        bban = (bbanCandidate ?? identifier.value ?? "").trim() || null;
+      }
+    }
+
+    return { iban, bban };
+  }
+
+  return {
+    iban: readNestedIdentifier(identifiers.iban, "iban"),
+    bban: readNestedIdentifier(identifiers.bban, "bban"),
+  };
+}
+
+function readNestedIdentifier(
+  value: string | { iban?: string; bban?: string } | undefined,
+  key: "iban" | "bban"
+): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value.trim() || null;
+  const nested = value[key];
+  return typeof nested === "string" && nested.trim() ? nested.trim() : null;
 }
 
 function normalizeCurrency(value: string | undefined): Currency | null {

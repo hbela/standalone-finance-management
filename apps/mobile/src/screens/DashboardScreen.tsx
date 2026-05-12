@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Card, Chip, Divider, List, ProgressBar, Text } from "react-native-paper";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { AddAccountDialog } from "../components/AddAccountDialog";
 import { EditAccountDialog } from "../components/EditAccountDialog";
@@ -9,41 +9,38 @@ import { MetricCard } from "../components/MetricCard";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
-import { api } from "../convexApi";
-import type { Doc } from "../../../../convex/_generated/dataModel";
-import { alerts, baseCurrency } from "../data/mockFinance";
-import type { Account } from "../data/types";
-import { useFinance } from "../state/FinanceContext";
+import { alerts } from "../data/mockFinance";
+import type { ExpenseProfileRow, IncomeStreamRow } from "../db/mappers";
+import {
+  archiveExpenseProfile,
+  archiveIncomeStream,
+  confirmIncomeStream,
+  dismissExpenseProfile,
+  dismissIncomeStream,
+  getSQLiteBalanceForecast,
+  listActiveExpenseProfiles,
+  listActiveIncomeStreams,
+} from "../services/sqlitePfm";
+import type { Account, Currency } from "../data/types";
+import { sqliteFinanceQueryKeys, useFinance } from "../state/FinanceContext";
 import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
-
-type IncomeStream = Doc<"incomeStreams">;
-type ExpenseProfile = Doc<"expenseProfiles">;
-type ForecastResult = {
-  currency: "EUR" | "HUF" | "USD" | "GBP";
-  horizonDays: number;
-  startingBalance: number;
-  endingBalance: number;
-  totalInflow: number;
-  totalOutflow: number;
-  points: Array<{
-    date: string;
-    projectedBalance: number;
-    expectedInflow: number;
-    expectedOutflow: number;
-  }>;
-};
 
 export function DashboardScreen() {
   const [addAccountVisible, setAddAccountVisible] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  const { accounts, transactions, liabilities, isLoading, error, clearError } = useFinance();
+  const { accounts, transactions, liabilities, settings, isLoading, error, clearError } = useFinance();
+  const queryClient = useQueryClient();
   const summary = getDashboardSummary(accounts, transactions, liabilities);
   const exposure = getCurrencyExposure(accounts);
   const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
-  const incomeStreamDocs = useQuery(api.incomeStreams.listForCurrent) as IncomeStream[] | undefined;
+  const incomeStreamQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.incomeStreams,
+    queryFn: () => listActiveIncomeStreams()
+  });
+  const incomeStreamDocs = incomeStreamQuery.data as IncomeStreamRow[] | undefined;
   const incomeStreams = useMemo(
     () =>
       (incomeStreamDocs ?? [])
@@ -55,13 +52,11 @@ export function DashboardScreen() {
     () => incomeStreams.reduce((sum, stream) => sum + stream.monthlyAverage, 0),
     [incomeStreams]
   );
-  const archiveIncomeStream = useMutation(api.incomeStreams.archive);
-  const dismissIncomeStream = useMutation(api.incomeStreams.dismiss);
-  const confirmIncomeStream = useMutation(api.incomeStreams.confirm);
-
-  const expenseProfileDocs = useQuery(api.expenseProfiles.listForCurrent) as
-    | ExpenseProfile[]
-    | undefined;
+  const expenseProfileQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.expenseProfiles,
+    queryFn: () => listActiveExpenseProfiles()
+  });
+  const expenseProfileDocs = expenseProfileQuery.data as ExpenseProfileRow[] | undefined;
   const expenseProfiles = useMemo(
     () =>
       (expenseProfileDocs ?? [])
@@ -73,12 +68,11 @@ export function DashboardScreen() {
     () => expenseProfiles.reduce((sum, profile) => sum + Math.abs(profile.monthlyAverage), 0),
     [expenseProfiles]
   );
-  const archiveExpenseProfile = useMutation(api.expenseProfiles.archive);
-  const dismissExpenseProfile = useMutation(api.expenseProfiles.dismiss);
-
-  const forecast = useQuery(api.forecast.getBalanceForecast, { horizonDays: 30 }) as
-    | ForecastResult
-    | undefined;
+  const forecastQuery = useQuery({
+    queryKey: [...sqliteFinanceQueryKeys.forecast, settings.baseCurrency, 30],
+    queryFn: () => getSQLiteBalanceForecast({ horizonDays: 30, baseCurrency: settings.baseCurrency })
+  });
+  const forecast = forecastQuery.data;
   const forecastHasContent = Boolean(
     forecast && (forecast.points.length > 0 || forecast.startingBalance !== 0)
   );
@@ -87,19 +81,19 @@ export function DashboardScreen() {
   return (
     <Screen>
       {isLoading ? (
-        <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from Convex." loading />
+        <StateCard title="Loading finance data" detail="Fetching your accounts, ledger, and liabilities from SQLite." loading />
       ) : null}
       {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
       <Card mode="contained" style={styles.hero}>
         <Card.Content>
           <Text variant="labelLarge" style={styles.heroLabel}>
-            Net position in {baseCurrency}
+            Net position in {settings.baseCurrency}
           </Text>
           <Text variant="displaySmall" style={styles.heroValue}>
-            {formatMoney(summary.netWorth, "EUR")}
+            {formatMoney(summary.netWorth, settings.baseCurrency)}
           </Text>
           <Text variant="bodyMedium" style={styles.heroCopy}>
-            {formatMoney(summary.cash, "EUR")} cash minus {formatMoney(summary.debt, "EUR")} tracked debt
+            {formatMoney(summary.cash, settings.baseCurrency)} cash minus {formatMoney(summary.debt, settings.baseCurrency)} tracked debt
           </Text>
           <View style={styles.heroActions}>
             <Button mode="contained-tonal" icon="bank-plus" onPress={() => setAddAccountVisible(true)}>
@@ -110,10 +104,10 @@ export function DashboardScreen() {
       </Card>
 
       <View style={styles.metricGrid}>
-        <MetricCard label="Income" value={formatMoney(summary.income, "EUR")} helper="Current month" tone="primary" />
-        <MetricCard label="Expenses" value={formatMoney(summary.expenses, "EUR")} helper="Excluding debt" />
-        <MetricCard label="Debt paid" value={formatMoney(summary.debtPayments, "EUR")} helper="Loans and mortgage" />
-        <MetricCard label="Cash flow" value={formatMoney(summary.cashFlow, "EUR")} helper="After commitments" />
+        <MetricCard label="Income" value={formatMoney(summary.income, settings.baseCurrency)} helper="Current month" tone="primary" />
+        <MetricCard label="Expenses" value={formatMoney(summary.expenses, settings.baseCurrency)} helper="Excluding debt" />
+        <MetricCard label="Debt paid" value={formatMoney(summary.debtPayments, settings.baseCurrency)} helper="Loans and mortgage" />
+        <MetricCard label="Cash flow" value={formatMoney(summary.cashFlow, settings.baseCurrency)} helper="After commitments" />
       </View>
 
       {forecast && forecastHasContent ? (
@@ -125,7 +119,7 @@ export function DashboardScreen() {
                   Projected balance in {forecast.horizonDays} days
                 </Text>
                 <Text variant="displaySmall" style={styles.forecastValue}>
-                  {formatMoney(forecast.endingBalance, forecast.currency)}
+                  {formatMoney(forecast.endingBalance, asCurrency(forecast.currency))}
                 </Text>
               </View>
               <Chip
@@ -133,16 +127,16 @@ export function DashboardScreen() {
                 icon={forecastDelta >= 0 ? "trending-up" : "trending-down"}
                 style={forecastDelta >= 0 ? styles.forecastUpChip : styles.forecastDownChip}
               >
-                {`${forecastDelta >= 0 ? "+" : ""}${formatMoney(forecastDelta, forecast.currency)}`}
+                {`${forecastDelta >= 0 ? "+" : ""}${formatMoney(forecastDelta, asCurrency(forecast.currency))}`}
               </Chip>
             </View>
             <Text variant="bodyMedium" style={styles.forecastCopy}>
-              Today {formatMoney(forecast.startingBalance, forecast.currency)} . expected{" "}
-              <Text style={styles.positive}>+{formatMoney(forecast.totalInflow, forecast.currency)}</Text> in,{" "}
-              <Text style={styles.negative}>-{formatMoney(forecast.totalOutflow, forecast.currency)}</Text> out
+              Today {formatMoney(forecast.startingBalance, asCurrency(forecast.currency))} . expected{" "}
+              <Text style={styles.positive}>+{formatMoney(forecast.totalInflow, asCurrency(forecast.currency))}</Text> in,{" "}
+              <Text style={styles.negative}>-{formatMoney(forecast.totalOutflow, asCurrency(forecast.currency))}</Text> out
             </Text>
             <Text variant="bodySmall" style={styles.muted}>
-              Forecast in {forecast.currency} only — multi-currency rollup coming with FX integration.
+              Forecast uses SQLite FX rates for multi-currency rollup.
             </Text>
           </Card.Content>
         </Card>
@@ -152,22 +146,22 @@ export function DashboardScreen() {
         <>
           <SectionTitle
             title="Income Streams"
-            action={`${formatMoney(totalEstimatedMonthlyIncome, "EUR")} / mo est.`}
+            action={`${formatMoney(totalEstimatedMonthlyIncome, settings.baseCurrency)} / mo est.`}
           />
           <Card mode="contained" style={styles.card}>
             {incomeStreams.map((stream, index) => (
-              <View key={stream._id}>
+              <View key={stream.id}>
                 <List.Item
                   title={stream.employerName}
-                  description={`${formatStreamFrequency(stream.frequency)} . ${stream.transactionCount} payments . next around ${formatStreamDate(stream.nextExpectedAt)}`}
+                  description={`${formatStreamFrequency(stream.frequency)} . ${stream.transactionCount} payments . next around ${formatStreamDate(stream.nextExpectedAt ?? undefined)}`}
                   left={(props) => <List.Icon {...props} icon="cash-multiple" />}
                   right={() => (
                     <View style={styles.amountBlock}>
                       <Text variant="titleSmall" style={styles.incomeAmount}>
-                        {formatMoney(stream.averageAmount, stream.currency)}
+                        {formatMoney(stream.averageAmount, asCurrency(stream.currency))}
                       </Text>
                       <Text variant="bodySmall" style={styles.muted}>
-                        {formatMoney(stream.monthlyAverage, stream.currency)} / mo
+                        {formatMoney(stream.monthlyAverage, asCurrency(stream.currency))} / mo
                       </Text>
                     </View>
                   )}
@@ -182,7 +176,7 @@ export function DashboardScreen() {
                       compact
                       mode="contained-tonal"
                       icon="check"
-                      onPress={() => void confirmIncomeStream({ streamId: stream._id })}
+                      onPress={() => void runPFMAction(() => confirmIncomeStream(stream.id), queryClient)}
                     >
                       Confirm
                     </Button>
@@ -191,7 +185,7 @@ export function DashboardScreen() {
                     compact
                     mode="outlined"
                     icon="archive-outline"
-                    onPress={() => void archiveIncomeStream({ streamId: stream._id })}
+                    onPress={() => void runPFMAction(() => archiveIncomeStream(stream.id), queryClient)}
                   >
                     Archive
                   </Button>
@@ -199,7 +193,7 @@ export function DashboardScreen() {
                     compact
                     mode="text"
                     icon="close"
-                    onPress={() => void dismissIncomeStream({ streamId: stream._id })}
+                    onPress={() => void runPFMAction(() => dismissIncomeStream(stream.id), queryClient)}
                   >
                     Dismiss
                   </Button>
@@ -215,11 +209,11 @@ export function DashboardScreen() {
         <>
           <SectionTitle
             title="Expense Profile"
-            action={`${formatMoney(totalEstimatedMonthlyExpenses, "EUR")} / mo est.`}
+            action={`${formatMoney(totalEstimatedMonthlyExpenses, settings.baseCurrency)} / mo est.`}
           />
           <Card mode="contained" style={styles.card}>
             {expenseProfiles.map((profile, index) => (
-              <View key={profile._id}>
+              <View key={profile.id}>
                 <List.Item
                   title={profile.category}
                   description={`${profile.monthsObserved} ${profile.monthsObserved === 1 ? "month" : "months"} . ${profile.transactionCount} payments`}
@@ -227,7 +221,7 @@ export function DashboardScreen() {
                   right={() => (
                     <View style={styles.amountBlock}>
                       <Text variant="titleSmall" style={styles.expenseAmount}>
-                        {formatMoney(Math.abs(profile.monthlyAverage), profile.currency)}
+                        {formatMoney(Math.abs(profile.monthlyAverage), asCurrency(profile.currency))}
                       </Text>
                       <Text variant="bodySmall" style={styles.muted}>
                         avg / mo
@@ -243,7 +237,7 @@ export function DashboardScreen() {
                     compact
                     mode="outlined"
                     icon="archive-outline"
-                    onPress={() => void archiveExpenseProfile({ profileId: profile._id })}
+                    onPress={() => void runPFMAction(() => archiveExpenseProfile(profile.id), queryClient)}
                   >
                     Archive
                   </Button>
@@ -251,7 +245,7 @@ export function DashboardScreen() {
                     compact
                     mode="text"
                     icon="close"
-                    onPress={() => void dismissExpenseProfile({ profileId: profile._id })}
+                    onPress={() => void runPFMAction(() => dismissExpenseProfile(profile.id), queryClient)}
                   >
                     Dismiss
                   </Button>
@@ -498,7 +492,12 @@ const styles = StyleSheet.create({
   }
 });
 
-function formatStreamFrequency(frequency: IncomeStream["frequency"]) {
+async function runPFMAction(action: () => Promise<void>, queryClient: QueryClient) {
+  await action();
+  await queryClient.invalidateQueries({ queryKey: sqliteFinanceQueryKeys.root });
+}
+
+function formatStreamFrequency(frequency: IncomeStreamRow["frequency"]) {
   switch (frequency) {
     case "weekly":
       return "Weekly";
@@ -518,4 +517,8 @@ function formatStreamDate(epochMs: number | undefined) {
     return "—";
   }
   return new Date(epochMs).toISOString().slice(0, 10);
+}
+
+function asCurrency(value: string): Currency {
+  return value === "HUF" || value === "USD" || value === "GBP" ? value : "EUR";
 }

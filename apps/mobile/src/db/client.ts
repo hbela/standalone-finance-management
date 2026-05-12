@@ -3,6 +3,7 @@ import * as SQLite from "expo-sqlite";
 
 import { BOOTSTRAP_DDL } from "./bootstrap";
 import * as schema from "./schema";
+import { isWebFallbackStorageEnabled } from "./webFallbackStore";
 
 const DB_NAME = "wise-finance-mirror.db";
 
@@ -11,7 +12,14 @@ let bootstrapPromise: Promise<void> | null = null;
 
 export type MirrorDatabase = ExpoSQLiteDatabase<typeof schema>;
 
+export function isSQLiteWebUnavailable() {
+  return isWebFallbackStorageEnabled();
+}
+
 export function getMirrorDatabase(): MirrorDatabase {
+  if (isSQLiteWebUnavailable()) {
+    throw new Error("SQLite web requires SharedArrayBuffer; using browser fallback storage.");
+  }
   if (dbInstance) {
     return dbInstance;
   }

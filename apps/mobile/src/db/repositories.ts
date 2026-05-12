@@ -175,7 +175,21 @@ export const expenseProfilesRepo = {
 };
 
 export const fxRatesRepo = {
-  upsert: (db: MirrorDatabase, rows: FxRateRow[]) => upsertTableRows(db, schema.fxRates, rows),
+  upsert: (db: MirrorDatabase, rows: FxRateRow[]) =>
+    rows.length === 0
+      ? Promise.resolve()
+      : db
+          .insert(schema.fxRates)
+          .values(rows)
+          .onConflictDoUpdate({
+            target: schema.fxRates.baseCurrency,
+            set: {
+              ratesJson: sql.raw('excluded."rates_json"'),
+              source: sql.raw('excluded."source"'),
+              fetchedAt: sql.raw('excluded."fetched_at"'),
+              updatedAt: sql.raw('excluded."updated_at"'),
+            },
+          }),
   list: (db: MirrorDatabase) => db.select().from(schema.fxRates).all(),
   byBaseCurrency: (db: MirrorDatabase, baseCurrency: string) =>
     db.select().from(schema.fxRates).where(eq(schema.fxRates.baseCurrency, baseCurrency)).get(),

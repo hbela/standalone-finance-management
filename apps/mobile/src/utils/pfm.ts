@@ -177,7 +177,7 @@ export function computeExpenseProfiles(
   }
 
   return [...buckets.entries()]
-    .map(([groupKey, bucket]) => {
+    .map<ExpenseProfile>(([groupKey, bucket]) => {
       const monthsObserved = bucket.perMonth.size;
       const totalAmount = [...bucket.perMonth.values()].reduce((sum, value) => sum + value, 0);
       return {

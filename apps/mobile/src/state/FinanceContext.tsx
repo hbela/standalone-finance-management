@@ -6,6 +6,7 @@ import { defaultCategories } from "../data/categories";
 import type { Account, Category, Currency, ImportBatch, Liability, Transaction, TransactionType } from "../data/types";
 import { ensureMirrorDatabaseReady } from "../db/client";
 import type { AccountRow, CategoryRow, ImportBatchRow, LiabilityRow, TransactionRow } from "../db/mappers";
+import { isWebFallbackStorageEnabled, webFallbackStore } from "../db/webFallbackStore";
 import {
   accountsRepo,
   categoriesRepo,
@@ -14,6 +15,7 @@ import {
   transactionsRepo
 } from "../db/repositories";
 import * as schema from "../db/schema";
+import { runSQLitePFMDetection } from "../services/sqlitePfm";
 import {
   arePotentialDuplicateTransactions,
   createTransactionDedupeHash,
@@ -118,289 +120,47 @@ type FinanceContextValue = {
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
-export function FinanceProvider({
-  children,
-  persistWithConvex = false
-}: {
-  children: ReactNode;
-  persistWithConvex?: boolean;
-}) {
-  if (persistWithConvex) {
-    return <PersistentFinanceProvider>{children}</PersistentFinanceProvider>;
-  }
-
-  return <LocalFinanceProvider>{children}</LocalFinanceProvider>;
+export function FinanceProvider({ children }: { children: ReactNode }) {
+  return <SQLiteFinanceProvider>{children}</SQLiteFinanceProvider>;
 }
 
-function LocalFinanceProvider({ children }: { children: ReactNode }) {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [liabilities, setLiabilities] = useState<Liability[]>([]);
-  const [categories, setCategories] = useState<Category[]>(defaultCategories);
-  const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
-    baseCurrency: "EUR",
-    locale: "en-US"
-  });
-  const [error, setError] = useState<string | null>(null);
 
-  const value = useMemo<FinanceContextValue>(
-    () => ({
-      accounts,
-      categories,
-      transactions,
-      liabilities,
-      importBatches: [],
-      settings,
-      isPersisted: false,
-      isLoading: false,
-      error,
-      clearError: () => setError(null),
-      addAccount: async (input) => {
-        const account: Account = {
-          id: `account-${Date.now()}`,
-          ...input,
-          lastSyncedAt: "Added manually"
-        };
-        setAccounts((current) => [account, ...current]);
-      },
-      updateAccount: async (input) => {
-        setAccounts((current) =>
-          current.map((account) =>
-            account.id === input.id
-              ? {
-                  id: account.id,
-                  name: input.name,
-                  source: input.source,
-                  currency: input.currency,
-                  type: input.type,
-                  currentBalance: input.currentBalance,
-                  bankId: input.bankId,
-                  lastSyncedAt: account.lastSyncedAt
-                }
-              : account
-          )
-        );
-      },
-      archiveAccount: async (accountId) => {
-        setAccounts((current) => current.filter((account) => account.id !== accountId));
-        setTransactions((current) => current.filter((transaction) => transaction.accountId !== accountId));
-      },
-      addCategory: async (name) => {
-        const normalizedName = normalizeCategoryName(name);
-        if (normalizedName.length === 0) {
-          return;
-        }
-        setCategories((current) => {
-          if (current.some((category) => normalizeCategoryName(category.name) === normalizedName)) {
-            return current;
-          }
-          const displayName = name.trim().replace(/\s+/g, " ");
-          return [...current, { id: displayName, name: displayName, isDefault: false }];
-        });
-      },
-      archiveCategory: async (name) => {
-        const normalizedName = normalizeCategoryName(name);
-        if (transactions.some((transaction) => normalizeCategoryName(transaction.category) === normalizedName)) {
-          setError("Category is used by active transactions");
-          return;
-        }
-        setCategories((current) =>
-          current.filter((category) => category.isDefault || normalizeCategoryName(category.name) !== normalizedName)
-        );
-      },
-      addTransaction: async (input) => {
-        const account = accounts.find((candidate) => candidate.id === input.accountId);
-        if (!account) {
-          return;
-        }
-
-        const signedAmount = normalizeAmount(input.amount, input.type);
-        const transaction: Transaction = {
-          id: `transaction-${Date.now()}`,
-          accountId: account.id,
-          source: account.source,
-          postedAt: input.postedAt,
-          amount: signedAmount,
-          currency: account.currency,
-          baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
-          description: input.description,
-          merchant: input.merchant,
-          category: input.category,
-          type: input.type,
-          isRecurring: input.isRecurring,
-          isExcludedFromReports: input.type === "transfer",
-          transferMatchId: undefined,
-          dedupeHash: createTransactionDedupeHash({
-            accountId: account.id,
-            postedAt: input.postedAt,
-            amount: signedAmount,
-            currency: account.currency,
-            description: input.description,
-            merchant: input.merchant
-          })
-        };
-
-        if (transactions.some((candidate) => arePotentialDuplicateTransactions(candidate, transaction))) {
-          return;
-        }
-
-        setTransactions((current) => [transaction, ...current]);
-        setAccounts((current) =>
-          current.map((candidate) =>
-            candidate.id === account.id
-              ? { ...candidate, currentBalance: candidate.currentBalance + signedAmount }
-              : candidate
-          )
-        );
-      },
-      importTransactions: async (accountId, rows) => {
-        const account = accounts.find((candidate) => candidate.id === accountId);
-        if (!account) {
-          return { imported: 0, skipped: rows.length };
-        }
-
-        const dedupeCandidates: DedupeTransaction[] = [...transactions];
-        const importedTransactions = rows
-          .filter((row) => {
-            const candidate = { ...row, accountId };
-            if (dedupeCandidates.some((existing) => arePotentialDuplicateTransactions(existing, candidate))) {
-              return false;
-            }
-            dedupeCandidates.push(candidate);
-            return true;
-          })
-          .map((row) => toImportedTransaction(row, account));
-        const balanceDelta = importedTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
-
-        if (importedTransactions.length === 0) {
-          return { imported: 0, skipped: rows.length };
-        }
-
-        setTransactions((current) => [...importedTransactions, ...current]);
-        setAccounts((current) =>
-          current.map((candidate) =>
-            candidate.id === account.id
-              ? {
-                  ...candidate,
-                  currentBalance: candidate.currentBalance + balanceDelta,
-                  lastSyncedAt: "CSV import today"
-                }
-              : candidate
-          )
-        );
-
-        return {
-          imported: importedTransactions.length,
-          skipped: rows.length - importedTransactions.length
-        };
-      },
-      updateTransaction: async (input) => {
-        setTransactions((current) =>
-          current.map((transaction) =>
-            transaction.id === input.id
-              ? {
-                  ...transaction,
-                  category: input.transferMatchId ? "Internal transfer" : input.category,
-                  type: input.transferMatchId ? "transfer" : input.type,
-                  merchant: input.merchant,
-                  description: input.description,
-                  notes: input.notes,
-                  isRecurring: input.isRecurring,
-                  isExcludedFromReports: input.transferMatchId ? true : input.isExcludedFromReports,
-                  transferMatchId: input.transferMatchId ?? undefined
-                }
-              : input.transferMatchId && transaction.id === input.transferMatchId
-                ? {
-                    ...transaction,
-                    category: "Internal transfer",
-                    type: "transfer",
-                    isExcludedFromReports: true,
-                    transferMatchId: input.id
-                  }
-                : transaction.transferMatchId === input.id && transaction.id !== input.transferMatchId
-                  ? { ...transaction, transferMatchId: undefined }
-              : transaction
-          )
-        );
-      },
-      archiveTransaction: async (transactionId) => {
-        const transaction = transactions.find((candidate) => candidate.id === transactionId);
-        setTransactions((current) => current.filter((candidate) => candidate.id !== transactionId));
-        if (transaction) {
-          setAccounts((current) =>
-            current.map((account) =>
-              account.id === transaction.accountId
-                ? { ...account, currentBalance: account.currentBalance - transaction.amount }
-                : account
-            )
-          );
-        }
-      },
-      revertImportBatch: async () => {},
-      addLiability: async (input) => {
-        const liability: Liability = {
-          id: `liability-${Date.now()}`,
-          ...input,
-          paymentFrequency: "monthly"
-        };
-        setLiabilities((current) => [liability, ...current]);
-      },
-      updateLiability: async (input) => {
-        setLiabilities((current) =>
-          current.map((liability) =>
-            liability.id === input.id
-              ? {
-                  id: liability.id,
-                  name: input.name,
-                  institution: input.institution,
-                  type: input.type,
-                  currency: input.currency,
-                  originalPrincipal: input.originalPrincipal,
-                  outstandingBalance: input.outstandingBalance,
-                  interestRate: input.interestRate,
-                  paymentAmount: input.paymentAmount,
-                  paymentFrequency: input.paymentFrequency,
-                  nextDueDate: input.nextDueDate,
-                  rateType: input.rateType
-                }
-              : liability
-          )
-        );
-      },
-      archiveLiability: async (liabilityId) => {
-        setLiabilities((current) => current.filter((liability) => liability.id !== liabilityId));
-      },
-      updateSettings: async (input) => {
-        setSettings(input);
-      }
-    }),
-    [accounts, categories, error, liabilities, settings, transactions]
-  );
-
-  return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
-}
-
-function PersistentFinanceProvider({ children }: { children: ReactNode }) {
+function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const accountsQuery = useQuery({
     queryKey: sqliteFinanceQueryKeys.accounts,
-    queryFn: async () => accountsRepo.list(await ensureMirrorDatabaseReady())
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.accounts.list()
+        : accountsRepo.list(await ensureMirrorDatabaseReady())
   });
   const categoriesQuery = useQuery({
     queryKey: sqliteFinanceQueryKeys.categories,
-    queryFn: async () => categoriesRepo.list(await ensureMirrorDatabaseReady())
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.categories.list()
+        : categoriesRepo.list(await ensureMirrorDatabaseReady())
   });
   const transactionsQuery = useQuery({
     queryKey: sqliteFinanceQueryKeys.transactions,
-    queryFn: async () => transactionsRepo.list(await ensureMirrorDatabaseReady())
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.transactions.list()
+        : transactionsRepo.list(await ensureMirrorDatabaseReady())
   });
   const liabilitiesQuery = useQuery({
     queryKey: sqliteFinanceQueryKeys.liabilities,
-    queryFn: async () => liabilitiesRepo.list(await ensureMirrorDatabaseReady())
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.liabilities.list()
+        : liabilitiesRepo.list(await ensureMirrorDatabaseReady())
   });
   const importBatchesQuery = useQuery({
     queryKey: sqliteFinanceQueryKeys.importBatches,
-    queryFn: async () => importBatchesRepo.list(await ensureMirrorDatabaseReady())
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.importBatches.list()
+        : importBatchesRepo.list(await ensureMirrorDatabaseReady())
   });
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
@@ -617,6 +377,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
               updatedAt: now
             }
           ]);
+          await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
       },
@@ -676,6 +437,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
               updatedAt: now
             }))
           );
+          await runSQLitePFMDetection();
           await refreshSQLiteQueries();
           return { imported: rows.length, skipped: 0, batchId };
         });
@@ -698,6 +460,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
               updatedAt: Date.now()
             }
           ]);
+          await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
       },
@@ -705,6 +468,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
         await runMutation(setError, async () => {
           const db = await ensureMirrorDatabaseReady();
           await db.delete(schema.transactions).where(eq(schema.transactions.id, transactionId));
+          await runSQLitePFMDetection(db);
           await refreshSQLiteQueries();
         });
       },
@@ -713,6 +477,7 @@ function PersistentFinanceProvider({ children }: { children: ReactNode }) {
           const db = await ensureMirrorDatabaseReady();
           await db.delete(schema.transactions).where(eq(schema.transactions.importBatchId, importBatchId));
           await db.delete(schema.importBatches).where(eq(schema.importBatches.id, importBatchId));
+          await runSQLitePFMDetection(db);
           await refreshSQLiteQueries();
         });
       },
@@ -798,7 +563,11 @@ export const sqliteFinanceQueryKeys = {
   categories: ["sqlite-finance", "categories"] as const,
   transactions: ["sqlite-finance", "transactions"] as const,
   liabilities: ["sqlite-finance", "liabilities"] as const,
-  importBatches: ["sqlite-finance", "import-batches"] as const
+  importBatches: ["sqlite-finance", "import-batches"] as const,
+  recurringSubscriptions: ["sqlite-finance", "recurring-subscriptions"] as const,
+  incomeStreams: ["sqlite-finance", "income-streams"] as const,
+  expenseProfiles: ["sqlite-finance", "expense-profiles"] as const,
+  forecast: ["sqlite-finance", "forecast"] as const
 };
 
 const localSQLiteUserId = "device-local-user";

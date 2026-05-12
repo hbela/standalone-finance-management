@@ -1,18 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
-import { useAuth } from "@clerk/clerk-expo";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useQuery } from "convex/react";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
 import type { BankConnectionReturn } from "../../App";
 import { Screen } from "../components/Screen";
-import { api } from "../convexApi";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import type { Currency } from "../data/types";
-import { useMirror } from "../db/MirrorContext";
-import type { ParityResult } from "../db/mirrorService";
 import {
   buildTinkSandboxLink,
   clearTinkBridgeTokens,
@@ -29,7 +24,6 @@ import { sqliteFinanceQueryKeys } from "../state/FinanceContext";
 type SettingsScreenProps = {
   bankConnectionReturn?: BankConnectionReturn | null;
   onBankConnectionReturnHandled?: () => void;
-  onSignOut?: () => void;
 };
 
 const currencyButtons = [
@@ -41,8 +35,7 @@ const currencyButtons = [
 
 export function SettingsScreen({
   bankConnectionReturn,
-  onBankConnectionReturnHandled,
-  onSignOut
+  onBankConnectionReturnHandled
 }: SettingsScreenProps) {
   const { addCategory, archiveCategory, categories, clearError, error, isPersisted, settings, updateSettings } = useFinance();
   const [baseCurrency, setBaseCurrency] = useState<Currency>(settings.baseCurrency);
@@ -187,97 +180,7 @@ export function SettingsScreen({
         </Card.Content>
       </Card>
 
-      <DualWriteSection />
-
-      {/* Session/auth UI is parked while Clerk is phased out. */}
     </Screen>
-  );
-}
-
-function DualWriteSection() {
-  const { status, runParityCheck } = useMirror();
-  const [isChecking, setIsChecking] = useState(false);
-  const [results, setResults] = useState<ParityResult[] | null>(null);
-  const [checkError, setCheckError] = useState<string | null>(null);
-
-  if (!status.enabled) {
-    return null;
-  }
-
-  const onRun = async () => {
-    setIsChecking(true);
-    setCheckError(null);
-    try {
-      const next = await runParityCheck();
-      setResults(next);
-    } catch (caught) {
-      setCheckError(caught instanceof Error ? caught.message : "Parity check failed");
-      setResults(null);
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  const lastMirrorLabel = status.lastMirroredAt
-    ? `Last mirrored ${new Date(status.lastMirroredAt).toLocaleTimeString()}`
-    : "No mirror runs yet";
-
-  return (
-    <>
-      <SectionTitle title="SQLite mirror (dev)" />
-      <Card mode="contained" style={styles.card}>
-        <Card.Content style={styles.content}>
-          <List.Item
-            title={status.ready ? "Mirror ready" : "Mirror initializing…"}
-            description={status.lastError ?? lastMirrorLabel}
-            left={(props) => (
-              <List.Icon
-                {...props}
-                icon={status.ready ? "database-check" : "database-sync"}
-              />
-            )}
-          />
-
-          <Button
-            mode="outlined"
-            icon="check-decagram"
-            disabled={!status.ready || isChecking}
-            loading={isChecking}
-            onPress={() => {
-              void onRun();
-            }}
-          >
-            Run parity check
-          </Button>
-
-          {checkError ? (
-            <HelperText type="error" visible>
-              {checkError}
-            </HelperText>
-          ) : null}
-
-          {results ? (
-            <View style={{ gap: 6 }}>
-              {results.map((row) => (
-                <View
-                  key={row.table}
-                  style={{ flexDirection: "row", justifyContent: "space-between" }}
-                >
-                  <Text variant="bodyMedium">{row.table}</Text>
-                  <Chip
-                    compact
-                    mode="outlined"
-                    icon={row.matches ? "check" : "alert-circle"}
-                  >
-                    {`Convex ${row.convexCount} / SQLite ${row.sqliteCount}`}
-                  </Chip>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </Card.Content>
-      </Card>
-    </>
   );
 }
 
@@ -288,8 +191,7 @@ function AuthenticatedBankConnectionSection({
   bankConnectionReturn?: BankConnectionReturn | null;
   onBankConnectionReturnHandled?: () => void;
 }) {
-  const { getToken } = useAuth();
-  const bankConnection = useBankConnection(getToken, true, bankConnectionReturn, onBankConnectionReturnHandled);
+  const bankConnection = useBankConnection(true, bankConnectionReturn, onBankConnectionReturnHandled);
 
   return (
     <>
@@ -390,108 +292,6 @@ function AuthenticatedBankConnectionSection({
           </View>
         </Card.Content>
       </Card>
-      <BankCredentialsList
-        isBusy={bankConnection.isBusy}
-        action={bankConnection.action}
-        onRefresh={bankConnection.refreshCredentials}
-        onExtend={bankConnection.extendConsent}
-      />
-    </>
-  );
-}
-
-type CredentialRow = {
-  id: string;
-  credentialsId: string;
-  providerName?: string;
-  institutionName?: string;
-  status: "connected" | "reconnect_required" | "temporary_error" | "unknown";
-  statusCode?: string;
-  consentExpiresAt?: number;
-  sessionExtendable?: boolean;
-};
-
-function BankCredentialsList({
-  isBusy,
-  action,
-  onRefresh,
-  onExtend
-}: {
-  isBusy: boolean;
-  action: BankAction;
-  onRefresh: (credentialsId: string) => void;
-  onExtend: (credentialsId: string) => void;
-}) {
-  const credentials = useQuery(api.tinkCredentials.listForCurrent) as CredentialRow[] | undefined;
-
-  if (!credentials || credentials.length === 0) {
-    return null;
-  }
-
-  return (
-    <>
-      <SectionTitle title="Connected banks" />
-      {credentials.map((credential) => {
-        const needsReconnect = credential.status === "reconnect_required";
-        const isTemporary = credential.status === "temporary_error";
-        const tone = needsReconnect ? "warning" : isTemporary ? "info" : "info";
-        const title =
-          credential.institutionName ??
-          credential.providerName ??
-          `Credential ${credential.credentialsId.slice(0, 8)}`;
-        const expiresLabel = credential.consentExpiresAt
-          ? `Consent expires ${new Date(credential.consentExpiresAt).toLocaleDateString()}.`
-          : null;
-        const statusDetail = needsReconnect
-          ? `Reconnect required${credential.statusCode ? ` (${credential.statusCode})` : ""}.`
-          : isTemporary
-            ? "Temporary error from Tink. Refreshing usually resolves it."
-            : credential.status === "unknown"
-              ? `Unknown state${credential.statusCode ? ` (${credential.statusCode})` : ""}.`
-              : "Connected.";
-
-        return (
-          <Card key={credential.id} mode="contained" style={styles.card}>
-            <Card.Content style={styles.content}>
-              <List.Item
-                title={title}
-                description={[statusDetail, expiresLabel].filter(Boolean).join(" ")}
-                left={(props) => (
-                  <List.Icon
-                    {...props}
-                    icon={needsReconnect ? "alert" : isTemporary ? "alert-circle-outline" : "bank-check"}
-                  />
-                )}
-              />
-              {tone === "warning" ? (
-                <StateCard title="Reconnect needed" detail={statusDetail} tone="warning" />
-              ) : null}
-              <View style={styles.actionRow}>
-                <Button
-                  disabled={isBusy}
-                  icon={needsReconnect ? "alert" : "cloud-refresh"}
-                  loading={action === "refreshCredentials"}
-                  mode={needsReconnect ? "contained" : "outlined"}
-                  onPress={() => onRefresh(credential.credentialsId)}
-                >
-                  {needsReconnect ? "Reconnect" : "Refresh"}
-                </Button>
-                {credential.sessionExtendable && !needsReconnect ? (
-                  <Button
-                    disabled={isBusy}
-                    icon="clock-plus-outline"
-                    loading={action === "extendConsent"}
-                    mode="outlined"
-                    onPress={() => onExtend(credential.credentialsId)}
-                  >
-                    Extend consent
-                  </Button>
-                ) : null}
-              </View>
-            </Card.Content>
-          </Card>
-        );
-      })}
     </>
   );
 }
@@ -586,7 +386,6 @@ type TinkSyncResponse = {
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
 function useBankConnection(
-  _getToken: ReturnType<typeof useAuth>["getToken"],
   isPersisted: boolean,
   bankConnectionReturn?: BankConnectionReturn | null,
   onBankConnectionReturnHandled?: () => void
@@ -662,14 +461,19 @@ function useBankConnection(
 
     if (bankConnectionReturn.status === "authorized") {
       setError(null);
-      setStatusLabel(bankConnectionReturn.source === "bridge" ? "Sandbox token stored" : "Authorized");
+      setStatusLabel("Syncing to SQLite");
       setIsConnected(true);
       setDetail(
         bankConnectionReturn.source === "bridge"
-          ? "Tink sandbox authorization completed. Tokens are stored on this device."
-          : "Tink authorization completed. Sync to import accounts and posted transactions."
+          ? "Tink sandbox authorization completed. Importing accounts and posted transactions now."
+          : "Tink authorization completed. Importing accounts and posted transactions now."
       );
-      void loadStatus().catch(() => undefined);
+      void run("sync", async () => {
+        await loadStatus();
+        const result = await tinkSync.mutateAsync();
+        setStatusLabel("Synced to SQLite");
+        setDetail(formatMobileSyncResult(result));
+      });
     } else {
       setStatusLabel("Authorization failed");
       setError(bankConnectionReturn.message ?? "Tink authorization failed.");
@@ -677,7 +481,7 @@ function useBankConnection(
     }
 
     onBankConnectionReturnHandled?.();
-  }, [bankConnectionReturn, loadStatus, onBankConnectionReturnHandled]);
+  }, [bankConnectionReturn, loadStatus, onBankConnectionReturnHandled, run, tinkSync]);
 
   const refresh = React.useCallback(() => {
     void run("refresh", loadStatus);
@@ -766,11 +570,20 @@ function formatSyncResult(result: TinkSyncResponse) {
 }
 
 function formatMobileSyncResult(result: TinkMobileSyncResult) {
+  const skipReasonSummary = formatSkipReasons(result.transactions.skipReasons);
   return [
     `Sync complete ${new Date().toLocaleString()}.`,
     `${result.accounts.importedCount} account${result.accounts.importedCount === 1 ? "" : "s"} written to SQLite (${result.accounts.fetchedCount} fetched, ${result.accounts.skippedCount} skipped).`,
-    `${result.transactions.importedCount} transaction${result.transactions.importedCount === 1 ? "" : "s"} written to SQLite (${result.transactions.fetchedCount} fetched, ${result.transactions.skippedCount} skipped).`
+    `${result.transactions.importedCount} transaction${result.transactions.importedCount === 1 ? "" : "s"} written to SQLite (${result.transactions.fetchedCount} fetched, ${result.transactions.skippedCount} skipped).${skipReasonSummary}`
   ].join(" ");
+}
+
+function formatSkipReasons(skipReasons: Record<string, number>) {
+  const entries = Object.entries(skipReasons);
+  if (entries.length === 0) {
+    return "";
+  }
+  return ` Skipped because ${entries.map(([reason, count]) => `${reason} (${count})`).join(", ")}.`;
 }
 
 function formatTinkBridgeTokenChip(tokens: TinkBridgeTokens) {
