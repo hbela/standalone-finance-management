@@ -2,6 +2,8 @@ import { defaultCategoryNames } from "../data/categories";
 import type { Account, Currency, TransactionType } from "../data/types";
 import { toBaseCurrency } from "./finance";
 
+export type ConvertToBaseFn = (amount: number, currency: Currency) => number;
+
 export type ParsedCsvTransaction = {
   postedAt: string;
   amount: number;
@@ -181,7 +183,11 @@ export function parseTransactionsCsv(
   return { rows, errors, mapping, dateFormat };
 }
 
-export function toImportedTransaction(row: ParsedCsvTransaction, account: Account) {
+export function toImportedTransaction(
+  row: ParsedCsvTransaction,
+  account: Account,
+  convertToBase: ConvertToBaseFn = toBaseCurrency
+) {
   return {
     id: `transaction-${Date.now()}-${Math.round(Math.random() * 100000)}`,
     accountId: account.id,
@@ -189,7 +195,7 @@ export function toImportedTransaction(row: ParsedCsvTransaction, account: Accoun
     postedAt: row.postedAt,
     amount: row.amount,
     currency: row.currency,
-    baseCurrencyAmount: toBaseCurrency(row.amount, row.currency),
+    baseCurrencyAmount: convertToBase(row.amount, row.currency),
     description: row.description,
     merchant: row.merchant,
     category: row.category,

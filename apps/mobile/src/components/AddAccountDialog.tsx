@@ -19,7 +19,6 @@ type AddAccountDialogProps = {
 
 const sourceButtons = [
   { label: "Bank", value: "local_bank" },
-  { label: "Wise", value: "wise" },
   { label: "Manual", value: "manual" }
 ];
 
@@ -32,7 +31,7 @@ const currencyButtons = [
 
 const addAccountSchema = z.object({
   name: z.string().trim().min(1, "Account name is required."),
-  source: z.enum(["local_bank", "wise", "manual"]),
+  source: z.enum(["local_bank", "manual"]),
   currency: z.enum(["EUR", "HUF", "USD", "GBP"]),
   balance: z
     .string()
@@ -72,7 +71,7 @@ export function AddAccountDialog({
         name: account.name,
         source: account.source,
         currency: account.currency,
-        type: account.source === "wise" ? "wise_balance" : account.source === "manual" ? "cash" : "checking",
+        type: account.source === "manual" ? "cash" : "checking",
         currentBalance: account.balance,
         bankId: account.source === "local_bank" ? initialBankId : undefined
       });

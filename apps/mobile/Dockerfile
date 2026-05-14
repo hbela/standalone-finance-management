@@ -18,7 +18,7 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN npm ci -w @wise-finance/mobile --include-workspace-root
+RUN npm ci -w @standalone-finance/mobile --include-workspace-root
 
 COPY apps/mobile apps/mobile
 

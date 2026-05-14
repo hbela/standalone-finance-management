@@ -41,7 +41,7 @@ Connect again as same Clerk user
 Expected:
 
 ```txt
-externalUserId === wise-finance:${clerkUserId}
+externalUserId === standalone-finance:${clerkUserId}
 Only one Tink user creation for that Clerk user
 providerConnections.externalUserId remains stable
 ```

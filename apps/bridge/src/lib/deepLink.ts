@@ -1,4 +1,4 @@
-export type OAuthProviderName = "tink" | "wise";
+export type OAuthProviderName = "tink";
 
 export type DeepLinkPayload = {
   access_token: string;

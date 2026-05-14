@@ -8,7 +8,7 @@ import {
 describe("deepLink", () => {
   it("builds a tink success deep link with all token fields in the fragment", () => {
     const link = buildOAuthDeepLink({
-      scheme: "wise-finance",
+      scheme: "standalone-finance",
       provider: "tink",
       state: "abc123",
       payload: {
@@ -20,7 +20,7 @@ describe("deepLink", () => {
       },
     });
 
-    expect(link.startsWith("wise-finance://oauth/tink#")).toBe(true);
+    expect(link.startsWith("standalone-finance://oauth/tink#")).toBe(true);
     const fragment = new URLSearchParams(link.split("#")[1]);
     expect(fragment.get("state")).toBe("abc123");
     expect(fragment.get("access_token")).toBe("tok-access");
@@ -32,8 +32,8 @@ describe("deepLink", () => {
 
   it("omits optional token fields when not provided", () => {
     const link = buildOAuthDeepLink({
-      scheme: "wise-finance",
-      provider: "wise",
+      scheme: "standalone-finance",
+      provider: "tink",
       state: "s",
       payload: { access_token: "only-access" },
     });
@@ -64,7 +64,7 @@ describe("deepLink", () => {
 
   it("builds an error deep link preserving state", () => {
     const link = buildOAuthErrorDeepLink({
-      scheme: "wise-finance",
+      scheme: "standalone-finance",
       provider: "tink",
       state: "s1",
       error: "access_denied",
@@ -72,18 +72,18 @@ describe("deepLink", () => {
     });
 
     expect(link).toBe(
-      "wise-finance://oauth/tink#state=s1&error=access_denied&error_description=User+cancelled+bank+login"
+      "standalone-finance://oauth/tink#state=s1&error=access_denied&error_description=User+cancelled+bank+login"
     );
   });
 
   it("builds an error deep link without state when none was supplied", () => {
     const link = buildOAuthErrorDeepLink({
-      scheme: "wise-finance",
-      provider: "wise",
+      scheme: "standalone-finance",
+      provider: "tink",
       state: null,
       error: "invalid_request",
     });
 
-    expect(link).toBe("wise-finance://oauth/wise#error=invalid_request");
+    expect(link).toBe("standalone-finance://oauth/tink#error=invalid_request");
   });
 });

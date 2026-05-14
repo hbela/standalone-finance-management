@@ -265,7 +265,7 @@ export function TransactionsScreen() {
                 )}
               />
               <View style={styles.metaRow}>
-                <Chip compact icon={transaction.source === "wise" ? "swap-horizontal" : "bank"}>
+                <Chip compact icon="bank">
                   {transaction.source.replace("_", " ")}
                 </Chip>
                 {transaction.isRecurring ? <Chip compact icon="repeat">Recurring</Chip> : null}

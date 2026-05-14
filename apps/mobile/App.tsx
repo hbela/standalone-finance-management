@@ -25,7 +25,7 @@ export type BankConnectionReturn = {
 };
 
 const queryClient = new QueryClient();
-const UNLOCK_PROMPT = "Unlock Wise Finance";
+const UNLOCK_PROMPT = "Unlock Standalone Finance Management";
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -115,7 +115,7 @@ export default function App() {
     return (
       <AppErrorBoundary>
         <View style={styles.errorScreen}>
-          <Text style={styles.errorTitle}>Starting Wise Finance…</Text>
+          <Text style={styles.errorTitle}>Starting Standalone Finance Management…</Text>
         </View>
       </AppErrorBoundary>
     );

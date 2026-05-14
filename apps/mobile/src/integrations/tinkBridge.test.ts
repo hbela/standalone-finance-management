@@ -102,7 +102,7 @@ describe("Tink bridge token flow", () => {
 
     await expect(
       bridge.handleTinkBridgeCallback(
-        "wise-finance://oauth/tink#state=actual&access_token=access"
+        "standalone-finance://oauth/tink#state=actual&access_token=access"
       )
     ).resolves.toEqual({
       status: "failed",
@@ -115,7 +115,7 @@ describe("Tink bridge token flow", () => {
     mockSecureStore.set("tink.sandbox.pendingState", "expected");
 
     const result = await bridge.handleTinkBridgeCallback(
-      "wise-finance://oauth/tink#state=expected&access_token=access&refresh_token=refresh&expires_in=3600&token_type=bearer"
+      "standalone-finance://oauth/tink#state=expected&access_token=access&refresh_token=refresh&expires_in=3600&token_type=bearer"
     );
 
     expect(result).toMatchObject({
@@ -133,7 +133,7 @@ describe("Tink bridge token flow", () => {
     mockSecureStore.set("tink.sandbox.pendingState", "expected");
     await expect(
       bridge.handleTinkBridgeCallback(
-        "wise-finance://oauth/tink#state=expected&error=access_denied&error_description=cancelled"
+        "standalone-finance://oauth/tink#state=expected&error=access_denied&error_description=cancelled"
       )
     ).resolves.toEqual({ status: "failed", message: "cancelled" });
   });
@@ -143,7 +143,7 @@ describe("Tink bridge token flow", () => {
     mockSecureStore.set("tink.sandbox.pendingState", "expected");
 
     await expect(
-      bridge.handleTinkBridgeCallback("wise-finance://oauth/tink#state=expected")
+      bridge.handleTinkBridgeCallback("standalone-finance://oauth/tink#state=expected")
     ).resolves.toEqual({
       status: "failed",
       message: "Tink authorization completed without an access token.",

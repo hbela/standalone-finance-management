@@ -6,11 +6,7 @@ export const testEnv: Env = {
   TINK_CLIENT_SECRET: "tink-client-secret",
   TINK_REDIRECT_URI: "https://bridge.example.com/oauth/tink/callback",
   TINK_API_BASE_URL: "https://api.tink.test",
-  WISE_CLIENT_ID: "wise-client-id",
-  WISE_CLIENT_SECRET: "wise-client-secret",
-  WISE_REDIRECT_URI: "https://bridge.example.com/oauth/wise/callback",
-  WISE_API_BASE_URL: "https://api.wise.test",
-  APP_DEEP_LINK_SCHEME: "wise-finance",
+  APP_DEEP_LINK_SCHEME: "standalone-finance",
   SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS: "300",
 };
 

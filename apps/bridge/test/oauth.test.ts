@@ -23,7 +23,7 @@ describe("GET /health", () => {
 });
 
 describe("GET /oauth/tink/callback", () => {
-  it("redirects to wise-finance:// deep link with tokens on success", async () => {
+  it("redirects to standalone-finance:// deep link with tokens on success", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify(tokenResponse()),
@@ -40,7 +40,7 @@ describe("GET /oauth/tink/callback", () => {
     expect(res.status).toBe(302);
     const location = res.headers.get("location");
     expect(location).not.toBeNull();
-    expect(location!.startsWith("wise-finance://oauth/tink#")).toBe(true);
+    expect(location!.startsWith("standalone-finance://oauth/tink#")).toBe(true);
     const fragment = new URLSearchParams(location!.split("#")[1]);
     expect(fragment.get("state")).toBe("state-123");
     expect(fragment.get("access_token")).toBe("tink-access");
@@ -318,65 +318,3 @@ describe("POST /oauth/tink/refresh", () => {
   });
 });
 
-describe("POST /oauth/wise/refresh", () => {
-  it("uses HTTP Basic auth with client_id:client_secret", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ access_token: "wise-access", expires_in: 3600 }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )
-    );
-
-    const body = JSON.stringify({ refresh_token: "wise-refresh" });
-    const headers = await signAsDevice({
-      method: "POST",
-      path: "/oauth/wise/refresh",
-      body,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-
-    const res = await app.request(
-      "/oauth/wise/refresh",
-      { method: "POST", body, headers: { "Content-Type": "application/json", ...headers } },
-      env
-    );
-
-    expect(res.status).toBe(200);
-    const [calledUrl, init] = fetchMock.mock.calls[0]!;
-    expect(String(calledUrl)).toBe("https://api.wise.test/oauth/token");
-    const expectedAuth = `Basic ${btoa("wise-client-id:wise-client-secret")}`;
-    expect((init.headers as Record<string, string>).Authorization).toBe(expectedAuth);
-    const sentBody = init.body as URLSearchParams;
-    expect(sentBody.get("grant_type")).toBe("refresh_token");
-    expect(sentBody.get("refresh_token")).toBe("wise-refresh");
-  });
-
-  it("returns not configured when Wise OAuth secrets are absent", async () => {
-    const body = JSON.stringify({ refresh_token: "wise-refresh" });
-    const headers = await signAsDevice({
-      method: "POST",
-      path: "/oauth/wise/refresh",
-      body,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
-    const tinkOnlyEnv: Env = {
-      ...env,
-      WISE_CLIENT_ID: undefined,
-      WISE_CLIENT_SECRET: undefined,
-      WISE_REDIRECT_URI: undefined,
-    };
-
-    const res = await app.request(
-      "/oauth/wise/refresh",
-      { method: "POST", body, headers: { "Content-Type": "application/json", ...headers } },
-      tinkOnlyEnv
-    );
-
-    expect(res.status).toBe(501);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await res.json()).toEqual({
-      error: "provider_not_configured",
-      message: "Wise OAuth is not configured for this bridge deployment",
-    });
-  });
-});

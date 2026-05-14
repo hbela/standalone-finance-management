@@ -72,50 +72,6 @@ function assertTinkConfigured(env: Env): asserts env is Env & {
   }
 }
 
-export async function exchangeWiseAuthorizationCode(env: Env, code: string): Promise<TokenResponse> {
-  assertWiseConfigured(env);
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: env.WISE_REDIRECT_URI,
-  });
-  return wiseTokenRequest(env, body);
-}
-
-export async function refreshWiseAccessToken(env: Env, refreshToken: string): Promise<TokenResponse> {
-  assertWiseConfigured(env);
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  return wiseTokenRequest(env, body);
-}
-
-async function wiseTokenRequest(env: Env, body: URLSearchParams): Promise<TokenResponse> {
-  assertWiseConfigured(env);
-  const auth = `Basic ${btoa(`${env.WISE_CLIENT_ID}:${env.WISE_CLIENT_SECRET}`)}`;
-  const response = await fetch(`${env.WISE_API_BASE_URL}/oauth/token`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: auth,
-    },
-    body,
-  });
-  return parseTokenResponse(response, "Wise");
-}
-
-function assertWiseConfigured(env: Env): asserts env is Env & {
-  WISE_CLIENT_ID: string;
-  WISE_CLIENT_SECRET: string;
-  WISE_REDIRECT_URI: string;
-} {
-  if (!env.WISE_CLIENT_ID || !env.WISE_CLIENT_SECRET || !env.WISE_REDIRECT_URI) {
-    throw new ProviderConfigError("Wise OAuth is not configured for this bridge deployment");
-  }
-}
-
 async function parseTokenResponse(response: Response, label: string): Promise<TokenResponse> {
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
 

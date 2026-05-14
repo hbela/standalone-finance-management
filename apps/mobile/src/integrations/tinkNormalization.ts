@@ -3,6 +3,8 @@ import type { AccountRow, TransactionRow } from "../db/mappers";
 import { createTransactionDedupeHash } from "../utils/csvImport";
 import { toBaseCurrency } from "../utils/finance";
 import { mapTinkCategoryCode } from "./tinkCategoryMapping";
+
+export type ConvertToBaseFn = (amount: number, currency: Currency) => number;
 import {
   parseTinkAmountValue,
   type TinkAccount,
@@ -71,7 +73,8 @@ export function normalizeTinkAccounts(accounts: TinkAccount[], now: number) {
 export function normalizeTinkTransactions(
   transactions: TinkTransaction[],
   accountIdByProviderId: Map<string, string>,
-  now: number
+  now: number,
+  convertToBase: ConvertToBaseFn = toBaseCurrency
 ) {
   const normalized: TransactionRow[] = [];
   let skippedCount = 0;
@@ -131,7 +134,7 @@ export function normalizeTinkTransactions(
       postedAt,
       amount,
       currency,
-      baseCurrencyAmount: toBaseCurrency(amount, currency),
+      baseCurrencyAmount: convertToBase(amount, currency),
       description,
       merchant,
       categoryId: categoryId ?? "Other",

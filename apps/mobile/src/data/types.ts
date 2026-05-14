@@ -13,12 +13,12 @@ export type Bank = {
 
 export type Account = {
   id: string;
-  source: "local_bank" | "wise" | "manual";
+  source: "local_bank" | "manual";
   bankId?: string;
   providerAccountId?: string;
   name: string;
   currency: Currency;
-  type: "checking" | "savings" | "credit" | "loan" | "mortgage" | "wise_balance" | "cash";
+  type: "checking" | "savings" | "credit" | "loan" | "mortgage" | "cash";
   currentBalance: number;
   lastSyncedAt?: string;
 };

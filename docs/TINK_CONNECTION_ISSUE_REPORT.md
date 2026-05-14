@@ -79,7 +79,7 @@ That URL shape — **`connect-accounts` + `authorization_code`, with no `respons
 
 ```ts
 if (config.tinkUseExistingUser) {
-  const externalUserId = `wise-finance:${userId}:${randomUUID()}`;
+  const externalUserId = `standalone-finance:${userId}:${randomUUID()}`;
   const tinkUser = await createTinkUser({ externalUserId, market, locale });
   tinkUserId = tinkUser.user_id;
 
@@ -230,7 +230,7 @@ In order:
 
 ## 7. Other observations worth noting (not blocking the current bug)
 
-- [apps/api/src/routes/tink.ts:151](apps/api/src/routes/tink.ts#L151) — `external_user_id` is a fresh UUID on every link start. Each reconnect creates a brand-new Tink user, leaking sandbox users and preventing reuse of consent. Should be deterministic per Clerk user (e.g., `wise-finance:${userId}`).
+- [apps/api/src/routes/tink.ts:151](apps/api/src/routes/tink.ts#L151) — `external_user_id` is a fresh UUID on every link start. Each reconnect creates a brand-new Tink user, leaking sandbox users and preventing reuse of consent. Should be deterministic per Clerk user (e.g., `standalone-finance:${userId}`).
 - [apps/api/src/routes/tink.ts:336-343](apps/api/src/routes/tink.ts#L336-L343) — In the callback, when `state.tinkUserId` is set the code mints **another** authorization (this time with `config.tinkScopes`) and ignores the `?code=` Link returns. That's correct for the delegated-existing-user flow but only works if the user actually exists and the prior Link session attached a credential to it. With the current mismatch, the callback may also fail on this second grant.
 - [apps/api/src/routes/tink.ts:205-219](apps/api/src/routes/tink.ts#L205-L219) — Token mode (`authorization_token`) is wired up but the code comment in `.env.example:33-34` already warns it can hit `INVALID_STATE_PROVIDER`. That's consistent with Tink's docs: the transactions Link flow uses `authorization_code` (delegated), not `authorization_token`.
 - The code path that builds `linkAuthorizationCode` always proceeds to set the URL parameter even if `tinkLinkAuthMode === "code"`. That's fine, but worth confirming once you switch to delegated grants that `connect-accounts` is replaced with `connect-more-accounts` for the existing-user case.

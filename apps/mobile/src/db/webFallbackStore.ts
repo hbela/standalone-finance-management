@@ -10,7 +10,7 @@ import type {
   UserRow,
 } from "./mappers";
 
-const storageKey = "wise-finance.web-fallback-store.v1";
+const storageKey = "standalone-finance.web-fallback-store.v1";
 
 type WebFallbackState = {
   users: UserRow[];

@@ -273,7 +273,7 @@ export function DashboardScreen() {
                 left={(props) => (
                   <List.Icon
                     {...props}
-                    icon={reconciliation.account.source === "wise" ? "swap-horizontal-circle" : "bank"}
+                    icon="bank"
                   />
                 )}
                 right={() => (

@@ -5,7 +5,7 @@ import { BOOTSTRAP_DDL } from "./bootstrap";
 import * as schema from "./schema";
 import { isWebFallbackStorageEnabled } from "./webFallbackStore";
 
-const DB_NAME = "wise-finance-mirror.db";
+const DB_NAME = "standalone-finance-mirror.db";
 
 let dbInstance: ExpoSQLiteDatabase<typeof schema> | null = null;
 let bootstrapPromise: Promise<void> | null = null;

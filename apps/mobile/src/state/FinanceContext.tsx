@@ -21,15 +21,15 @@ import {
   ensureFxSnapshot,
   FX_CACHE_TTL_MS,
   type FxSnapshot,
-  normalizeFxCurrency
+  normalizeFxCurrency,
+  toBaseCurrencyAmount
 } from "../services/fxRates";
 import { runSQLitePFMDetection } from "../services/sqlitePfm";
 import {
   arePotentialDuplicateTransactions,
   createTransactionDedupeHash,
   type DedupeTransaction,
-  type ParsedCsvTransaction,
-  toImportedTransaction
+  type ParsedCsvTransaction
 } from "../utils/csvImport";
 import { toBaseCurrency } from "../utils/finance";
 
@@ -358,7 +358,9 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         const signedAmount = normalizeAmount(input.amount, input.type);
         await runMutation(setError, async () => {
           const now = Date.now();
-          await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [
+          const db = await ensureMirrorDatabaseReady();
+          const fxSnapshot = await ensureFxSnapshot(db, "EUR", now);
+          await transactionsRepo.upsert(db, [
             {
               id: `transaction-${now}`,
               userId: localSQLiteUserId,
@@ -368,7 +370,7 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
               postedAt: Date.parse(input.postedAt),
               amount: signedAmount,
               currency: account.currency,
-              baseCurrencyAmount: toBaseCurrency(signedAmount, account.currency),
+              baseCurrencyAmount: toBaseCurrencyAmount(signedAmount, account.currency, fxSnapshot),
               description: input.description,
               merchant: input.merchant,
               categoryId: input.category,
@@ -407,7 +409,9 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         return await runMutation(setError, async () => {
           const now = Date.now();
           const batchId = `import-${now}`;
-          await importBatchesRepo.upsert(await ensureMirrorDatabaseReady(), [
+          const db = await ensureMirrorDatabaseReady();
+          const fxSnapshot = await ensureFxSnapshot(db, "EUR", now);
+          await importBatchesRepo.upsert(db, [
             {
               id: batchId,
               userId: localSQLiteUserId,
@@ -425,7 +429,7 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
             }
           ]);
           await transactionsRepo.upsert(
-            await ensureMirrorDatabaseReady(),
+            db,
             rows.map((row, index) => ({
               id: `transaction-${now}-${index}`,
               userId: localSQLiteUserId,
@@ -435,7 +439,7 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
               postedAt: Date.parse(row.postedAt),
               amount: row.amount,
               currency: row.currency,
-              baseCurrencyAmount: toBaseCurrency(row.amount, row.currency),
+              baseCurrencyAmount: toBaseCurrencyAmount(row.amount, row.currency, fxSnapshot),
               description: row.description,
               merchant: row.merchant,
               categoryId: row.category,

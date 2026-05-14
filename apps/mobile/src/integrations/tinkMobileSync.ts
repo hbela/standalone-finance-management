@@ -1,9 +1,15 @@
 import { ensureMirrorDatabaseReady } from "../db/client";
 import { accountsRepo, transactionsRepo } from "../db/repositories";
 import { isWebFallbackStorageEnabled, webFallbackStore } from "../db/webFallbackStore";
+import {
+  buildStaticSnapshot,
+  ensureFxSnapshot,
+  toBaseCurrencyAmount,
+} from "../services/fxRates";
 import { runSQLitePFMDetection } from "../services/sqlitePfm";
 import { getTinkBridgeTokens } from "./tinkBridge";
 import {
+  type ConvertToBaseFn,
   getDefaultTransactionWindow,
   normalizeTinkAccounts,
   normalizeTinkTransactions,
@@ -46,7 +52,17 @@ export async function syncTinkToSQLite(): Promise<TinkMobileSyncResult> {
         .map((account) => [account.providerAccountId as string, account.id])
     );
     const tinkTransactions = await listTinkTransactions(tokens.accessToken, getDefaultTransactionWindow(now));
-    const transactionSync = normalizeTinkTransactions(tinkTransactions, accountIdByProviderId, now);
+    // Web fallback has no SQLite-backed FX cache, so use the static snapshot.
+    // Native paths below hit Frankfurter via ensureFxSnapshot.
+    const fallbackSnapshot = buildStaticSnapshot("EUR", now);
+    const convertToBase: ConvertToBaseFn = (amount, currency) =>
+      toBaseCurrencyAmount(amount, currency, fallbackSnapshot);
+    const transactionSync = normalizeTinkTransactions(
+      tinkTransactions,
+      accountIdByProviderId,
+      now,
+      convertToBase
+    );
     await webFallbackStore.transactions.upsert(transactionSync.transactions);
 
     return {
@@ -75,7 +91,15 @@ export async function syncTinkToSQLite(): Promise<TinkMobileSyncResult> {
   );
 
   const tinkTransactions = await listTinkTransactions(tokens.accessToken, getDefaultTransactionWindow(now));
-  const transactionSync = normalizeTinkTransactions(tinkTransactions, accountIdByProviderId, now);
+  const fxSnapshot = await ensureFxSnapshot(db, "EUR", now);
+  const convertToBase: ConvertToBaseFn = (amount, currency) =>
+    toBaseCurrencyAmount(amount, currency, fxSnapshot);
+  const transactionSync = normalizeTinkTransactions(
+    tinkTransactions,
+    accountIdByProviderId,
+    now,
+    convertToBase
+  );
   await transactionsRepo.upsert(db, transactionSync.transactions);
   await runSQLitePFMDetection(db);
 

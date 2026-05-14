@@ -83,7 +83,7 @@ export function Shell({
       <View style={styles.header}>
         <View>
           <Text variant="labelLarge" style={styles.kicker}>
-            Wise Finance
+            Standalone Finance Management
           </Text>
           <Text variant="titleLarge">Multi-currency cockpit</Text>
         </View>

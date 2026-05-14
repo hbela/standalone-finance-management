@@ -2,9 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./env.js";
 import {
   exchangeTinkAuthorizationCode,
-  exchangeWiseAuthorizationCode,
   refreshTinkAccessToken,
-  refreshWiseAccessToken,
 } from "./lib/providers.js";
 import { createOAuthRoutes } from "./routes/oauth.js";
 import { createTinkDataProxyRoutes } from "./routes/tinkProxy.js";
@@ -18,14 +16,6 @@ app.route(
   createOAuthRoutes("tink", {
     exchange: exchangeTinkAuthorizationCode,
     refresh: refreshTinkAccessToken,
-  })
-);
-
-app.route(
-  "/oauth/wise",
-  createOAuthRoutes("wise", {
-    exchange: exchangeWiseAuthorizationCode,
-    refresh: refreshWiseAccessToken,
   })
 );
 

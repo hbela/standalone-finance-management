@@ -1,9 +1,14 @@
 
 # THE TINK LAYER.md
 
+> **Historical design doc.** Wise integration was dropped from the product
+> (decision: 2026-05-14, legal constraints). Any "Wise" mention below is
+> retained as the original exploration only; only the Tink layer is being
+> built. The current architecture is in [CLAUDE.md](../CLAUDE.md).
+
 Yes. Think of it this way:
 
-**Wise = money movement / multi-currency wallet provider**
+**Wise = money movement / multi-currency wallet provider** *(no longer in scope)*
 **Tink = bank aggregation / open banking provider**
 **Your app = unified finance layer + ledger**
 

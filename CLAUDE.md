@@ -1,4 +1,4 @@
-# Wise Finance Management
+# Standalone Finance Management
 
 Personal-finance app with EU bank aggregation via Tink and a forward-looking PFM layer (categorisation, recurring detection, income streams, expense profile, 30-day balance forecast). Mobile is Expo + React Native + react-native-paper. Backend is a single Cloudflare Worker that holds nothing.
 
@@ -11,7 +11,7 @@ End-state shape, fully landed as of 2026-05-12 (M6 cleanup complete):
 
 The legacy `convex/`, `apps/api/`, `@clerk/clerk-expo`, and Coolify deployment are gone — `git log -- convex apps/api` recovers the history if you ever need it. Current focus: **M7** — App Store readiness (privacy policy, store listings, icon/splash, accessibility pass, crash reporting, encrypted export).
 
-The plan is at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Wise Finance Management/Mobile-First Bridge Track.md` (M1–M8).
+The plan is at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Standalone Finance Management/Mobile-First Bridge Track.md` (M1–M8).
 
 ## Repo layout
 
@@ -35,10 +35,10 @@ apps/
                       # csvImport.ts, finance.ts, money.ts, recurring.ts
   bridge/             # Cloudflare Worker — OAuth + data proxy
     src/
-      index.ts        # Hono router, mounts /oauth/{tink,wise} + /tink/data/v2 + /health
+      index.ts        # Hono router, mounts /oauth/tink + /tink/data/v2 + /health
       env.ts          # Env binding shape
       routes/
-        oauth.ts      # createOAuthRoutes("tink"|"wise") — GET callback, POST refresh
+        oauth.ts      # createOAuthRoutes("tink") — GET callback, POST refresh
         tinkProxy.ts  # createTinkDataProxyRoutes — GET accounts, GET transactions (CORS)
       lib/            # signature.ts (Ed25519 verify), deepLink.ts, providers.ts (token exchange), http.ts
     test/             # Vitest smoke tests (3 files, 26 scenarios)
@@ -46,7 +46,7 @@ packages/shared/      # Shared TS types (CountryCode, CurrencyCode, …)
 docs/                 # THE_TINK_LAYER, TINK_SANDBOX_TEST_SCENARIOS, TINK_CONNECTION_ISSUE_REPORT, TINK_TESTING
 ```
 
-Project tracking in the Obsidian vault at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Wise Finance Management/`:
+Project tracking in the Obsidian vault at `C:/Users/hajze/Documents/obsidian/my-vault/Projects/Standalone Finance Management/`:
 - **Mobile-First Bridge Track.md** — current direction (M1–M8).
 - **Tink Hardening Track.md** — T1/T2/T3 history; the PFM heuristics from T3 are the ones now living in `apps/mobile/src/utils/pfm.ts`.
 
@@ -62,15 +62,15 @@ npm run typecheck
 npm run test
 
 # Mobile (the product)
-npm run typecheck -w @wise-finance/mobile
-npm run test -w @wise-finance/mobile        # jest --runInBand
-npm run start -w @wise-finance/mobile       # Expo dev server (loads ../../.env.local)
-npm run web -w @wise-finance/mobile         # Expo web
+npm run typecheck -w @standalone-finance/mobile
+npm run test -w @standalone-finance/mobile        # jest --runInBand
+npm run start -w @standalone-finance/mobile       # Expo dev server (loads ../../.env.local)
+npm run web -w @standalone-finance/mobile         # Expo web
 
 # Bridge (the Cloudflare Worker)
-npm run typecheck -w @wise-finance/bridge
-npm run test -w @wise-finance/bridge        # vitest, Cloudflare Workers pool
-npm run dev -w @wise-finance/bridge         # wrangler dev — local Worker on 8787
+npm run typecheck -w @standalone-finance/bridge
+npm run test -w @standalone-finance/bridge        # vitest, Cloudflare Workers pool
+npm run dev -w @standalone-finance/bridge         # wrangler dev — local Worker on 8787
 npm run deploy:bridge                       # wrangler deploy — pushes to workers.dev
 ```
 
@@ -99,7 +99,7 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Tink integration
 
-- OAuth: device opens Tink Link URL → Tink redirects to `https://wise-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to `wise-finance://oauth/tink#access_token=…&refresh_token=…` (or to a localhost web origin on Expo web) → mobile stores tokens in SecureStore/localStorage.
+- OAuth: device opens Tink Link URL → Tink redirects to `https://wise-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to `standalone-finance://oauth/tink#access_token=…&refresh_token=…` (or to a localhost web origin on Expo web) → mobile stores tokens in SecureStore/localStorage. The deployed worker name is still `wise-finance-bridge` (rename deferred).
 - Data fetch: mobile calls `${EXPO_PUBLIC_TINK_BRIDGE_URL}/tink/data/v2/{accounts,transactions}` with `Authorization: Bearer <access_token>`. Bridge proxies to `api.tink.com/data/v2/*` and adds `Access-Control-Allow-Origin: *` (required for Expo web; native ignores it).
 - Tink v2 `accounts[].identifiers` is an **object** keyed by identifier type (`{ iban: { iban }, bban: { bban }, sortCode: ... }`), not an array. Mobile-side `extractAccountIdentifiers` tolerates both shapes.
 - Categories: raw Tink code is preserved on `transactions.tinkCategoryCode`; the mapped name lives in `categoryId`. Mapping is in [tinkCategoryMapping.ts](apps/mobile/src/integrations/tinkCategoryMapping.ts).
@@ -126,8 +126,8 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Tests
 
-- Mobile tests are jest under `apps/mobile/src/**/*.test.{ts,tsx}`. Run with `npm run test -w @wise-finance/mobile`. Current count: 72 across 8 suites.
-- Bridge tests are vitest under `apps/bridge/test/*.test.ts`, run with the Cloudflare Workers pool. Run with `npm run test -w @wise-finance/bridge`. Current count: 26 across 3 suites.
+- Mobile tests are jest under `apps/mobile/src/**/*.test.{ts,tsx}`. Run with `npm run test -w @standalone-finance/mobile`. Current count: 111 across 13 suites.
+- Bridge tests are vitest under `apps/bridge/test/*.test.ts`, run with the Cloudflare Workers pool. Run with `npm run test -w @standalone-finance/bridge`. Current count: 35 across 4 suites (the Wise OAuth refresh scenarios were removed 2026-05-14 with the Wise integration).
 - Native modules are mocked in [apps/mobile/jest.setup.ts](apps/mobile/jest.setup.ts): `react-native-safe-area-context`, `expo-local-authentication`. Add new mocks here when a test imports a native-only module.
 
 ## Environment
@@ -152,9 +152,8 @@ Set via `wrangler secret put` (or `.dev.vars` for `wrangler dev`):
 
 - `TINK_CLIENT_ID`, `TINK_CLIENT_SECRET`, `TINK_REDIRECT_URI`
 - `TINK_API_BASE_URL` (`https://api.tink.com`)
-- `APP_DEEP_LINK_SCHEME` (`wise-finance`)
+- `APP_DEEP_LINK_SCHEME` (`standalone-finance`)
 - `SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS` (defaults `300`)
-- `WISE_*` are optional; the bridge returns `501 provider_not_configured` for `/oauth/wise/*` when unset.
 
 ## Sandbox & smoke checks
 

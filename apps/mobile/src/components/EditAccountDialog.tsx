@@ -16,7 +16,6 @@ type EditAccountDialogProps = {
 
 const sourceButtons = [
   { label: "Bank", value: "local_bank" },
-  { label: "Wise", value: "wise" },
   { label: "Manual", value: "manual" }
 ];
 
@@ -29,7 +28,7 @@ const currencyButtons = [
 
 const editAccountSchema = z.object({
   name: z.string().trim().min(1, "Account name is required."),
-  source: z.enum(["local_bank", "wise", "manual"]),
+  source: z.enum(["local_bank", "manual"]),
   currency: z.enum(["EUR", "HUF", "USD", "GBP"]),
   balance: z
     .string()
@@ -67,7 +66,7 @@ export function EditAccountDialog({ account, visible, onDismiss }: EditAccountDi
         name: parsed.name,
         source: parsed.source,
         currency: parsed.currency,
-        type: parsed.source === "wise" ? "wise_balance" : parsed.source === "manual" ? "cash" : "checking",
+        type: parsed.source === "manual" ? "cash" : "checking",
         currentBalance: parsed.balance,
         bankId: parsed.source === "local_bank" ? account.bankId : undefined
       };

@@ -140,7 +140,7 @@ describe("webFallbackStore", () => {
   });
 
   test("corrupt localStorage resets to an empty state", async () => {
-    localStorageBacking.set("wise-finance.web-fallback-store.v1", "{not-json");
+    localStorageBacking.set("standalone-finance.web-fallback-store.v1", "{not-json");
 
     await expect(webFallbackStore.accounts.list()).resolves.toEqual([]);
     await webFallbackStore.accounts.upsert([account]);

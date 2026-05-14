@@ -6,8 +6,8 @@ booking_date,transaction_amount,ccy,payee,memo,category,transaction_type
 05/04/2026,-4990,HUF,Netflix,Streaming subscription,Subscriptions,expense
 06/04/2026,-7290,HUF,Telekom,Mobile plan,Utilities,expense
 07/04/2026,-120000,HUF,Landlord,April rent,Housing,expense
-08/04/2026,-15000,HUF,Wise Transfer,Move savings to EUR account,Internal transfer,transfer
-09/04/2026,15000,HUF,Wise Transfer,Move savings from HUF account,Internal transfer,transfer
+08/04/2026,-15000,HUF,FX Transfer,Move savings to EUR account,Internal transfer,transfer
+09/04/2026,15000,HUF,FX Transfer,Move savings from HUF account,Internal transfer,transfer
 10/04/2026,-3820,HUF,DM Drogerie,Pharmacy and toiletries,Healthcare,expense
 11/04/2026,-9900,HUF,Bookline,Finance book,Education,expense
 12/04/2026,-26000,HUF,MOL,Petrol,Transport,expense

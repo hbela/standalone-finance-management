@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Wise Finance",
-    "slug": "wise-finance-management",
-    "scheme": "wise-finance",
+    "name": "SFM",
+    "slug": "standalone-finance-management",
+    "scheme": "standalone-finance",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",

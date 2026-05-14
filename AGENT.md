@@ -1,11 +1,11 @@
 # Agent Guide
 
-This repo is a Turborepo workspace for Wise Finance Management, a personal finance cockpit built around an Expo React Native app, a Fastify API scaffold, shared TypeScript types, and Convex persistence.
+This repo is a Turborepo workspace for Standalone Finance Management, a personal finance cockpit built around an Expo React Native app, a Cloudflare Worker OAuth bridge, and shared TypeScript types. (Note: this file is stale — the Convex/Clerk/Fastify scaffolding it describes was removed in M6. See CLAUDE.md for the current architecture.)
 
 ## Project Shape
 
 - `apps/mobile`: Expo React Native app using React Native Paper, Clerk, Convex, and `dotenv-cli`.
-- `apps/api`: Fastify TypeScript API for backend-only workflows such as Wise integration.
+- `apps/bridge`: Cloudflare Worker that exchanges Tink OAuth codes and proxies Tink data calls.
 - `convex`: Convex schema, auth config, generated API bindings, and finance functions.
 - `packages/shared`: Shared finance and API response types.
 
@@ -16,7 +16,7 @@ The current product baseline is described in `README.md`; planned work and prior
 - Use npm workspaces. The root package manager is `npm@11.9.0`.
 - Install dependencies from the repo root with `npm install`.
 - Keep client-safe Expo values in root `.env.local` with `EXPO_PUBLIC_` prefixes.
-- Do not commit secrets from `.env.local`, API env files, Convex deployment credentials, or Clerk/Wise keys.
+- Do not commit secrets from `.env.local`, API env files, Convex deployment credentials, or Clerk keys.
 - Convex generated files under `convex/_generated` are checked in and may need refreshing after schema/function changes.
 
 Common local env values:
@@ -43,9 +43,9 @@ npm run convex:dev     # run/link Convex dev and refresh generated bindings
 For focused checks:
 
 ```bash
-npm run typecheck -w @wise-finance/mobile
-npm run typecheck -w @wise-finance/api
-npm run build -w @wise-finance/shared
+npm run typecheck -w @standalone-finance/mobile
+npm run typecheck -w @standalone-finance/api
+npm run build -w @standalone-finance/shared
 ```
 
 ## Development Notes
@@ -54,7 +54,7 @@ npm run build -w @wise-finance/shared
 - Keep mobile screens focused on presentation and user workflows; shared formatting helpers belong in `apps/mobile/src/utils`.
 - Keep domain types in `packages/shared` when they are consumed across app/API boundaries.
 - Keep Convex data access in `convex/*` functions. Use authenticated user scoping for user-owned finance records.
-- The Fastify API is for backend-only/provider workflows such as Wise and protected server routes; do not expose provider secrets to the Expo client.
+- The Cloudflare Worker bridge holds provider client secrets; do not expose them to the Expo client.
 - When adding Convex schema or function changes, run `npm run convex:dev` or `npx convex codegen` as appropriate so generated API types stay current.
 - For mobile env access, remember the Expo app scripts load `../../.env.local` via `dotenv-cli`.
 

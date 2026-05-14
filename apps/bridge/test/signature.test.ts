@@ -126,7 +126,7 @@ describe("signature.verifySignedRequest", () => {
     await expect(
       verifySignedRequest({
         method: "POST",
-        path: "/oauth/wise/refresh",
+        path: "/oauth/tink/callback",
         body,
         headers,
         now,

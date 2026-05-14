@@ -140,9 +140,6 @@ export function SettingsScreen({
         <LocalBankConnectionSection />
       )}
 
-      {/* Wise connection is parked until the Wise bridge flow is ready. */}
-      {/* {isPersisted ? <AuthenticatedWiseConnectionSection /> : null} */}
-
       <SectionTitle title="Categories" action={`${categories.length} active`} />
       <Card mode="contained" style={styles.card}>
         <Card.Content style={styles.content}>
@@ -321,36 +318,6 @@ function LocalBankConnectionSection() {
       </Card>
     </>
   );
-}
-
-type WiseStatusResponse = {
-  connected: boolean;
-  configured: boolean;
-  environment: string;
-  authMode?: "personal_token" | "oauth" | "unconfigured";
-  oauthAvailable?: boolean;
-  message?: string;
-  connection?: {
-    status: string;
-    lastSyncedAt?: number;
-    lastSyncStatus?: string;
-    lastError?: string;
-  } | null;
-};
-
-type WiseSyncResponse = {
-  provider: "wise";
-  profileCount: number;
-  balanceCount: number;
-  accountResult: { createdCount: number; updatedCount: number };
-  transactionResult: { imported: number; updated: number; skipped: number };
-};
-
-type WiseAction = "connect" | "sync" | "disconnect" | "refresh" | null;
-
-function AuthenticatedWiseConnectionSection() {
-  // Wise connection is parked until the Wise bridge flow is ready.
-  return null;
 }
 
 type BankAction =

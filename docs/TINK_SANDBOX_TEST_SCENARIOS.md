@@ -7,7 +7,7 @@ Use these scenarios with a Tink Sandbox app and demo bank to verify the read-onl
 - Root `.env.local` has `EXPO_PUBLIC_API_URL=http://localhost:4000` and auth providers enabled for mobile testing.
 - `apps/api/.env` or the API process environment has Clerk, Convex, `API_SERVICE_SECRET`, `OAUTH_STATE_SECRET`, `TOKEN_ENCRYPTION_KEY`, and the Tink sandbox credentials.
 - `TINK_REDIRECT_URI` matches the callback URL registered in the Tink app, usually `http://localhost:4000/integrations/tink/callback`.
-- `APP_REDIRECT_URL` points to the app surface you are testing, for example `http://localhost:8081` for Expo web or `wise-finance://` for native.
+- `APP_REDIRECT_URL` points to the app surface you are testing, for example `http://localhost:8081` for Expo web or `standalone-finance://` for native.
 - `TINK_SCOPES` includes `accounts:read,balances:read,transactions:read,provider-consents:read,user:read,credentials:read,credentials:refresh`.
 - `TINK_LINK_BASE_URL` uses the transactions connection flow: `https://link.tink.com/1.0/transactions/connect-accounts`.
 - Sandbox runs use `TINK_MARKET=GB`, `TINK_TEST_MODE=true`, `TINK_LOCALE=en_US`, `TINK_INPUT_PROVIDER=uk-demobank-open-banking-redirect`, and `TINK_INPUT_USERNAME=u12345` to preselect the GB Tink Demo Bank (Open Banking redirect). The exact slug enabled for a given Tink app may differ — run `node apps/api/scripts/list-tink-providers.mjs` to list providers your client has access to. Set `TINK_USE_INPUT_PREFILL=false` to debug Link without provider and username prefill while keeping those env values.
@@ -20,7 +20,7 @@ Use these scenarios with a Tink Sandbox app and demo bank to verify the read-onl
 Run the API normalization scenarios:
 
 ```bash
-npm run test -w @wise-finance/api
+npm run test -w @standalone-finance/api
 ```
 
 These cover sandbox-shaped account balances, transaction amount/date variants, pending transaction skips, unsupported currency skips, transaction type mapping, and provider dedupe hash stability.

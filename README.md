@@ -1,90 +1,40 @@
-# Wise Finance Management
+# Standalone Finance Management
 
-A Turborepo workspace for a multi-currency personal finance cockpit. The mobile app is an Expo React Native MVP using React Native Paper, Clerk auth, Convex persistence, manual finance entry, CSV import, and a Wise-ready API scaffold.
+Personal-finance app with EU bank aggregation via Tink and a forward-looking PFM layer (categorisation, recurring detection, income streams, expense profile, 30-day balance forecast).
 
-Phase 1 is implemented: signed-in users can create, edit, import, and archive accounts, transactions, and liabilities through Convex-backed flows, with loading, empty, error, validation, and settings surfaces in the app.
+- **Mobile** (`apps/mobile/`) — Expo React Native using React Native Paper. Holds the Expo SQLite ledger, SecureStore for tokens, ported PFM heuristics, Frankfurter FX cache, and biometric gate via `expo-local-authentication`. No cloud identity.
+- **Bridge** (`apps/bridge/`) — Stateless Cloudflare Worker. Holds `TINK_CLIENT_SECRET`, exchanges OAuth codes for tokens, and proxies Tink data calls. Stores nothing.
+
+See [CLAUDE.md](CLAUDE.md) for the full architecture and conventions.
 
 ## Run
 
 ```bash
 npm install
-npm run start
+npm run start         # Expo dev server for the mobile app
+npm run web           # Expo web
 ```
 
-Metro runs from `apps/mobile` on `http://localhost:8081` by default. Open the project with Expo Go, an emulator, or Expo web.
-
-To run the Fastify API scaffold:
+## Workspace scripts
 
 ```bash
-npm run start:api
+npm run typecheck     # turbo typecheck across mobile + bridge + shared
+npm run test          # mobile (jest) + bridge (vitest)
+npm run dev -w @standalone-finance/bridge    # wrangler dev on :8787
+npm run deploy:bridge                        # wrangler deploy
 ```
 
-The API listens on `http://localhost:4000` and exposes `GET /health`.
+## Repo layout
 
-Set the Clerk, Convex, Wise, and Tink values in the repo-root `.env.local`. The API loads env files in this order, with the first occurrence of each key winning: `apps/api/.env.local` → `apps/api/.env` → `<repo-root>/.env.local` → `<repo-root>/.env`.
-
-For the Expo app, keep client-safe values in the root `.env.local` with the `EXPO_PUBLIC_` prefix. Set `EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true` to use Clerk and Convex instead of local demo state:
-
-```bash
-EXPO_PUBLIC_CONVEX_URL=https://your-project.convex.cloud
-EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_your_key
-EXPO_PUBLIC_ENABLE_AUTH_PROVIDERS=true
-EXPO_PUBLIC_API_URL=http://localhost:4000
 ```
-
-The mobile workspace scripts load the root `.env.local`, so browser testing can stay simple from the repo root:
-
-```bash
-npm run web
-```
-
-## Workspace Scripts
-
-```bash
-npm run dev          # run workspace dev tasks through Turbo
-npm run typecheck    # typecheck every workspace
-npm run build        # build workspaces that have build outputs
-npm run start:mobile # start the Expo app
-npm run web          # start Expo directly in the web browser
-npm run web:clear    # start Expo web with Metro cache cleared
-npm run start:api    # start the Fastify API in watch mode
-npm run convex:dev   # link/run the Convex backend
-```
-
-## Project Shape
-
-```text
 apps/
-  mobile/        Expo React Native app
-    src/
-      components/   shared Paper-based UI
-      data/         seed banks, category metadata, and local demo records
-      screens/      onboarding, dashboard, transactions, debts, settings
-      state/        finance context with local demo mode and Convex persistence mode
-      theme/        React Native Paper theme
-      utils/        money formatting and FX summary helpers
-  api/           Fastify backend for backend-only workflows such as Wise
-
+  mobile/             Expo app — the runtime product
+  bridge/             Cloudflare Worker — OAuth + Tink data proxy
 packages/
-  shared/        shared finance types, constants, and seed metadata
+  shared/             shared TS types
+docs/                 Tink integration notes
 ```
 
-## Current Backend Baseline
+## Environment
 
-- `apps/api` is a TypeScript Fastify service with a `/health` route.
-- `apps/api` has public `/config` and `/banks` routes plus Clerk-protected `/me` and `/wise/*` placeholders.
-- `convex/` contains the schema, Clerk auth config, authenticated user/bank functions, and user-scoped finance mutations.
-- `apps/mobile` wraps the app in Clerk and Convex providers when Expo public env values are set and auth providers are enabled.
-- `packages/shared` contains the first shared API response and finance domain types.
-- Without auth providers, the mobile app runs in local demo mode with in-memory records for the current app session.
-
-Run `npm run convex:dev` once to link this repo to your Convex app and generate Convex's `_generated` TypeScript files.
-
-## MVP Finance Flows
-
-- Dashboard account rows can be edited or archived.
-- Ledger rows can be edited or archived; archiving reverses the transaction's balance impact.
-- CSV import reports the actual Convex imported/skipped counts.
-- Debt cards can be edited or archived.
-- Settings supports base currency, locale, and sign-out.
-- Convex-backed screens show loading, empty, and finance action error states.
+`.env.local` lives at the repo root and is loaded into Expo via `dotenv-cli`. The bridge has its own secrets set via `wrangler secret put`. `.env.example` documents the mobile-side variables.

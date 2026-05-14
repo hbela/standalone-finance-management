@@ -1,5 +1,5 @@
 {
-  "name": "wise-finance-management",
+  "name": "standalone-finance-management",
   "version": "0.1.0",
   "private": true,
   "packageManager": "npm@11.9.0",
@@ -12,13 +12,13 @@
     "build": "turbo build",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
-    "start": "npm run start -w @wise-finance/mobile",
-    "start:mobile": "npm run start -w @wise-finance/mobile",
-    "web:clear": "npm run web:clear -w @wise-finance/mobile",
-    "android": "npm run android -w @wise-finance/mobile",
-    "ios": "npm run ios -w @wise-finance/mobile",
-    "web": "npm run web -w @wise-finance/mobile",
-    "deploy:bridge": "npm run deploy -w @wise-finance/bridge"
+    "start": "npm run start -w @standalone-finance/mobile",
+    "start:mobile": "npm run start -w @standalone-finance/mobile",
+    "web:clear": "npm run web:clear -w @standalone-finance/mobile",
+    "android": "npm run android -w @standalone-finance/mobile",
+    "ios": "npm run ios -w @standalone-finance/mobile",
+    "web": "npm run web -w @standalone-finance/mobile",
+    "deploy:bridge": "npm run deploy -w @standalone-finance/bridge"
   },
   "overrides": {
     "react": "19.2.5",

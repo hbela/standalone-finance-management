@@ -15,7 +15,7 @@ export function AppLockScreen({ error, isAuthenticating, message, onUnlock }: Ap
       <Card mode="contained" style={styles.card}>
         <Card.Content style={styles.content}>
           <View>
-            <Text style={styles.kicker}>Wise Finance</Text>
+            <Text style={styles.kicker}>Standalone Finance Management</Text>
             <Text style={styles.title}>Unlock to continue</Text>
             <Text style={styles.copy}>
               {message ??

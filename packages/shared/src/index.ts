@@ -1,4 +1,4 @@
-export const API_SERVICE_NAME = "wise-finance-api";
+export const API_SERVICE_NAME = "standalone-finance-api";
 
 export type HealthResponse = {
   service: typeof API_SERVICE_NAME;
@@ -9,7 +9,7 @@ export type CountryCode = "HU" | "FR";
 
 export type CurrencyCode = "HUF" | "EUR" | "USD" | "GBP";
 
-export type AccountSource = "local_bank" | "wise" | "manual";
+export type AccountSource = "local_bank" | "manual";
 
 export type AccountType =
   | "checking"
@@ -17,7 +17,6 @@ export type AccountType =
   | "credit"
   | "loan"
   | "mortgage"
-  | "wise_balance"
   | "cash";
 
 export type TransactionType =
