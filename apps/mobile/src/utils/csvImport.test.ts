@@ -3,7 +3,8 @@ import {
   arePotentialDuplicateTransactions,
   createTransactionDedupeHash,
   inspectTransactionsCsv,
-  parseTransactionsCsv
+  parseTransactionsCsv,
+  toImportedTransaction
 } from "./csvImport";
 
 const account: Account = {
@@ -109,5 +110,47 @@ describe("csv import quality", () => {
         }
       )
     ).toBe(true);
+  });
+
+  it("does not flag same-day same-amount transactions across different accounts as duplicates", () => {
+    const left = {
+      accountId: "checking",
+      postedAt: "2026-05-01",
+      amount: -19.99,
+      currency: "EUR" as const,
+      description: "Spotify",
+      merchant: "Spotify",
+      dedupeHash: "left"
+    };
+
+    expect(
+      arePotentialDuplicateTransactions(left, {
+        ...left,
+        accountId: "savings",
+        dedupeHash: "right"
+      })
+    ).toBe(false);
+  });
+
+  it("marks imported transfers as excluded from reports", () => {
+    const imported = toImportedTransaction(
+      {
+        postedAt: "2026-05-01",
+        amount: 250,
+        currency: "EUR",
+        description: "Move to savings",
+        merchant: "Savings",
+        category: "Internal transfer",
+        type: "transfer",
+        dedupeHash: "transfer"
+      },
+      account
+    );
+
+    expect(imported).toMatchObject({
+      type: "transfer",
+      isExcludedFromReports: true,
+      notes: "Imported from CSV"
+    });
   });
 });

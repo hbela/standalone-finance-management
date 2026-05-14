@@ -1,5 +1,9 @@
 import type { Account, Transaction } from "../data/types";
-import { getAccountBalanceReconciliations, getDashboardSummary } from "./finance";
+import { buildStaticSnapshot } from "../services/fxRates";
+import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "./finance";
+
+const eurSnapshot = buildStaticSnapshot("EUR", 0);
+const hufSnapshot = buildStaticSnapshot("HUF", 0);
 
 const accounts: Account[] = [
   {
@@ -137,10 +141,27 @@ describe("finance data quality", () => {
   });
 
   it("keeps matched transfers out of dashboard spending and income", () => {
-    expect(getDashboardSummary(accounts, transactions, [])).toMatchObject({
+    expect(getDashboardSummary(accounts, transactions, [], eurSnapshot)).toMatchObject({
       income: 100,
       expenses: 25,
       cashFlow: 75
     });
+  });
+
+  it("rescales dashboard sums into the snapshot base currency", () => {
+    const hufSummary = getDashboardSummary(accounts, transactions, [], hufSnapshot);
+    // EUR-stored income (100) divided by EUR-per-HUF (≈0.00254) ≈ 39 370 HUF.
+    expect(hufSummary.income).toBeCloseTo(100 / hufSnapshot.rates.EUR, 1);
+    expect(hufSummary.expenses).toBeCloseTo(25 / hufSnapshot.rates.EUR, 1);
+  });
+
+  it("exposes per-account base amounts using the snapshot", () => {
+    const exposure = getCurrencyExposure(accounts, eurSnapshot);
+    expect(exposure).toEqual([
+      { currency: "EUR", amount: 75, baseAmount: 75 },
+      expect.objectContaining({ currency: "HUF", amount: 1001 })
+    ]);
+    // 1001 HUF / 393.7 HUF-per-EUR ≈ 2.5425.
+    expect(exposure[1]?.baseAmount).toBeCloseTo(1001 / eurSnapshot.rates.HUF, 4);
   });
 });

@@ -22,7 +22,7 @@ import {
   listActiveIncomeStreams,
 } from "../services/sqlitePfm";
 import type { Account, Currency } from "../data/types";
-import { sqliteFinanceQueryKeys, useFinance } from "../state/FinanceContext";
+import { sqliteFinanceQueryKeys, useFinance, useFxSnapshot } from "../state/FinanceContext";
 import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
@@ -31,8 +31,9 @@ export function DashboardScreen() {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const { accounts, transactions, liabilities, settings, isLoading, error, clearError } = useFinance();
   const queryClient = useQueryClient();
-  const summary = getDashboardSummary(accounts, transactions, liabilities);
-  const exposure = getCurrencyExposure(accounts);
+  const fxSnapshot = useFxSnapshot(settings.baseCurrency);
+  const summary = getDashboardSummary(accounts, transactions, liabilities, fxSnapshot);
+  const exposure = getCurrencyExposure(accounts, fxSnapshot);
   const reconciliations = getAccountBalanceReconciliations(accounts, transactions);
   const exposureDenominator = Math.max(Math.abs(summary.cash), 1);
 
@@ -322,7 +323,7 @@ export function DashboardScreen() {
                   <Text variant="bodyMedium">{formatMoney(item.amount, item.currency)}</Text>
                 </View>
                 <View style={styles.exposureValue}>
-                  <Text variant="labelLarge">{formatMoney(item.baseAmount, "EUR")}</Text>
+                  <Text variant="labelLarge">{formatMoney(item.baseAmount, settings.baseCurrency)}</Text>
                   <ProgressBar progress={Math.min(Math.abs(item.baseAmount) / exposureDenominator, 1)} color="#19624A" />
                 </View>
               </View>

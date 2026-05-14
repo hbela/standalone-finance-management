@@ -80,7 +80,7 @@ export type TinkTransaction = {
 // because the browser blocks cross-origin calls to api.tink.com. The bridge proxy is
 // stateless — it forwards Authorization: Bearer upstream and streams the response back.
 function getTinkApiBaseUrl(): string {
-  const bridgeUrl = process.env.EXPO_PUBLIC_TINK_BRIDGE_URL?.replace(/\/+$/, "");
+  const bridgeUrl = process.env["EXPO_PUBLIC_TINK_BRIDGE_URL"]?.replace(/\/+$/, "");
   if (!bridgeUrl) {
     throw new Error("Set EXPO_PUBLIC_TINK_BRIDGE_URL in .env.local to enable Tink sync.");
   }

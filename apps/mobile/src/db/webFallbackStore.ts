@@ -7,11 +7,13 @@ import type {
   LiabilityRow,
   RecurringSubscriptionRow,
   TransactionRow,
+  UserRow,
 } from "./mappers";
 
 const storageKey = "wise-finance.web-fallback-store.v1";
 
 type WebFallbackState = {
+  users: UserRow[];
   accounts: AccountRow[];
   categories: CategoryRow[];
   transactions: TransactionRow[];
@@ -23,6 +25,7 @@ type WebFallbackState = {
 };
 
 const emptyState: WebFallbackState = {
+  users: [],
   accounts: [],
   categories: [],
   transactions: [],
@@ -43,6 +46,7 @@ export function isWebFallbackStorageEnabled() {
 }
 
 export const webFallbackStore = {
+  users: createCollection("users"),
   accounts: createCollection("accounts"),
   categories: createCollection("categories"),
   transactions: createCollection("transactions"),
@@ -99,6 +103,7 @@ function readState(): WebFallbackState {
   try {
     const parsed = JSON.parse(raw) as Partial<WebFallbackState>;
     return {
+      users: Array.isArray(parsed.users) ? parsed.users : [],
       accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
       categories: Array.isArray(parsed.categories) ? parsed.categories : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],

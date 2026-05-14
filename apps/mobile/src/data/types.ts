@@ -1,5 +1,7 @@
 export type Currency = "HUF" | "EUR" | "USD" | "GBP";
 
+export type Country = "HU" | "FR";
+
 export type Bank = {
   id: string;
   name: string;

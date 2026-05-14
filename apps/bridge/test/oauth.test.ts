@@ -1,23 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index.js";
 import type { Env } from "../src/env.js";
-import {
-  base64Encode,
-  buildSignedMessage,
-} from "../src/lib/signature.js";
-
-const env: Env = {
-  TINK_CLIENT_ID: "tink-client-id",
-  TINK_CLIENT_SECRET: "tink-client-secret",
-  TINK_REDIRECT_URI: "https://bridge.example.com/oauth/tink/callback",
-  TINK_API_BASE_URL: "https://api.tink.test",
-  WISE_CLIENT_ID: "wise-client-id",
-  WISE_CLIENT_SECRET: "wise-client-secret",
-  WISE_REDIRECT_URI: "https://bridge.example.com/oauth/wise/callback",
-  WISE_API_BASE_URL: "https://api.wise.test",
-  APP_DEEP_LINK_SCHEME: "wise-finance",
-  SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS: "300",
-};
+import { signAsDevice, testEnv as env, tokenResponse } from "./helpers.js";
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -29,32 +13,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
-async function generateKeyPair() {
-  return crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as Promise<CryptoKeyPair>;
-}
-
-async function exportRawPublicKey(key: CryptoKey) {
-  return new Uint8Array(await crypto.subtle.exportKey("raw", key));
-}
-
-async function signAsDevice(input: { method: string; path: string; body: string; timestamp: number }) {
-  const { publicKey, privateKey } = await generateKeyPair();
-  const message = await buildSignedMessage(
-    String(input.timestamp),
-    input.method,
-    input.path,
-    input.body
-  );
-  const sig = new Uint8Array(
-    await crypto.subtle.sign("Ed25519", privateKey, message as BufferSource)
-  );
-  return {
-    "X-Public-Key": base64Encode(await exportRawPublicKey(publicKey)),
-    "X-Timestamp": String(input.timestamp),
-    "X-Signature": base64Encode(sig),
-  };
-}
 
 describe("GET /health", () => {
   it("returns ok", async () => {
@@ -68,13 +26,7 @@ describe("GET /oauth/tink/callback", () => {
   it("redirects to wise-finance:// deep link with tokens on success", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          access_token: "tink-access",
-          refresh_token: "tink-refresh",
-          expires_in: 7200,
-          token_type: "bearer",
-          scope: "accounts:read",
-        }),
+        JSON.stringify(tokenResponse()),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
     );
@@ -110,10 +62,7 @@ describe("GET /oauth/tink/callback", () => {
   it("redirects to localhost web callback when state carries a dev web return URL", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          access_token: "tink-access",
-          refresh_token: "tink-refresh",
-        }),
+        JSON.stringify(tokenResponse({ expires_in: undefined, token_type: undefined, scope: undefined })),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
     );
@@ -180,6 +129,83 @@ describe("GET /oauth/tink/callback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     const fragment = new URLSearchParams(res.headers.get("location")!.split("#")[1]);
     expect(fragment.get("error")).toBe("invalid_request");
+  });
+
+  it("redirects with exchange_failed when Tink returns malformed success JSON", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ refresh_token: "orphan-refresh" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const res = await app.request(
+      "/oauth/tink/callback?code=abc&state=s",
+      { redirect: "manual" },
+      env
+    );
+
+    expect(res.status).toBe(302);
+    const fragment = new URLSearchParams(res.headers.get("location")!.split("#")[1]);
+    expect(fragment.get("error")).toBe("exchange_failed");
+    expect(fragment.get("error_description")).toBe("Tink returned invalid token response");
+    expect(fragment.has("refresh_token")).toBe(false);
+  });
+
+  it("redirects without refresh_token when Tink omits the optional field", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ access_token: "access-only" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const res = await app.request(
+      "/oauth/tink/callback?code=abc&state=s",
+      { redirect: "manual" },
+      env
+    );
+
+    const fragment = new URLSearchParams(res.headers.get("location")!.split("#")[1]);
+    expect(fragment.get("access_token")).toBe("access-only");
+    expect(fragment.has("refresh_token")).toBe(false);
+  });
+
+  it("redirects with exchange_failed when the token exchange throws", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network offline"));
+
+    const res = await app.request(
+      "/oauth/tink/callback?code=abc&state=s",
+      { redirect: "manual" },
+      env
+    );
+
+    const fragment = new URLSearchParams(res.headers.get("location")!.split("#")[1]);
+    expect(fragment.get("error")).toBe("exchange_failed");
+    expect(fragment.get("error_description")).toBe("network offline");
+  });
+
+  it("redirects with provider_not_configured when Tink env is missing", async () => {
+    const missingEnv: Env = {
+      ...env,
+      TINK_CLIENT_ID: undefined as unknown as string,
+      TINK_CLIENT_SECRET: undefined as unknown as string,
+      TINK_REDIRECT_URI: undefined as unknown as string,
+    };
+
+    const res = await app.request(
+      "/oauth/tink/callback?code=abc&state=s",
+      { redirect: "manual" },
+      missingEnv
+    );
+
+    expect(res.status).toBe(302);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const fragment = new URLSearchParams(res.headers.get("location")!.split("#")[1]);
+    expect(fragment.get("error")).toBe("provider_not_configured");
+    expect(fragment.get("error_description")).toBe(
+      "Tink OAuth is not configured for this bridge deployment"
+    );
   });
 });
 

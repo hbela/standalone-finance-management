@@ -27,6 +27,7 @@ export class ProviderConfigError extends ProviderTokenError {
 }
 
 export async function exchangeTinkAuthorizationCode(env: Env, code: string): Promise<TokenResponse> {
+  assertTinkConfigured(env);
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -38,6 +39,7 @@ export async function exchangeTinkAuthorizationCode(env: Env, code: string): Pro
 }
 
 export async function refreshTinkAccessToken(env: Env, refreshToken: string): Promise<TokenResponse> {
+  assertTinkConfigured(env);
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
@@ -48,6 +50,7 @@ export async function refreshTinkAccessToken(env: Env, refreshToken: string): Pr
 }
 
 async function tinkTokenRequest(env: Env, body: URLSearchParams): Promise<TokenResponse> {
+  assertTinkConfigured(env);
   const response = await fetch(`${env.TINK_API_BASE_URL}/api/v1/oauth/token`, {
     method: "POST",
     headers: {
@@ -57,6 +60,16 @@ async function tinkTokenRequest(env: Env, body: URLSearchParams): Promise<TokenR
     body,
   });
   return parseTokenResponse(response, "Tink");
+}
+
+function assertTinkConfigured(env: Env): asserts env is Env & {
+  TINK_CLIENT_ID: string;
+  TINK_CLIENT_SECRET: string;
+  TINK_REDIRECT_URI: string;
+} {
+  if (!env.TINK_CLIENT_ID || !env.TINK_CLIENT_SECRET || !env.TINK_REDIRECT_URI) {
+    throw new ProviderConfigError("Tink OAuth is not configured for this bridge deployment");
+  }
 }
 
 export async function exchangeWiseAuthorizationCode(env: Env, code: string): Promise<TokenResponse> {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
@@ -7,7 +7,7 @@ import type { BankConnectionReturn } from "../../App";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
-import type { Currency } from "../data/types";
+import type { Country, Currency } from "../data/types";
 import {
   buildTinkSandboxLink,
   clearTinkBridgeTokens,
@@ -33,35 +33,36 @@ const currencyButtons = [
   { label: "GBP", value: "GBP" }
 ];
 
+const countryButtons = [
+  { label: "Hungary", value: "HU" },
+  { label: "France", value: "FR" }
+];
+
+const localeForCountry: Record<Country, string> = {
+  HU: "hu-HU",
+  FR: "fr-FR"
+};
+
 export function SettingsScreen({
   bankConnectionReturn,
   onBankConnectionReturnHandled
 }: SettingsScreenProps) {
   const { addCategory, archiveCategory, categories, clearError, error, isPersisted, settings, updateSettings } = useFinance();
+  const [country, setCountry] = useState<Country>(settings.country);
   const [baseCurrency, setBaseCurrency] = useState<Currency>(settings.baseCurrency);
   const [locale, setLocale] = useState(settings.locale);
   const [categoryName, setCategoryName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
-  const hasChanges = baseCurrency !== settings.baseCurrency || locale.trim() !== settings.locale;
+  const hasChanges =
+    country !== settings.country || baseCurrency !== settings.baseCurrency;
   const normalizedCategoryName = categoryName.trim().replace(/\s+/g, " ");
   const categoryExists = categories.some(
     (category) => category.name.toLowerCase() === normalizedCategoryName.toLowerCase()
   );
-  const localeError = useMemo(() => {
-    if (locale.trim().length === 0) {
-      return "Locale is required.";
-    }
-
-    try {
-      new Intl.NumberFormat(locale.trim());
-      return null;
-    } catch {
-      return "Enter a valid locale, such as en-US or hu-HU.";
-    }
-  }, [locale]);
 
   useEffect(() => {
+    setCountry(settings.country);
     setBaseCurrency(settings.baseCurrency);
     setLocale(settings.locale);
   }, [settings]);
@@ -73,6 +74,20 @@ export function SettingsScreen({
       <SectionTitle title="Settings" action={isPersisted ? "Convex" : "Local"} />
       <Card mode="contained" style={styles.card}>
         <Card.Content style={styles.content}>
+          <View>
+            <Text variant="labelLarge">Country</Text>
+            <SegmentedButtons
+              buttons={countryButtons}
+              onValueChange={(value) => {
+                clearError();
+                const nextCountry = value as Country;
+                setCountry(nextCountry);
+                setLocale(localeForCountry[nextCountry]);
+              }}
+              value={country}
+            />
+          </View>
+
           <View>
             <Text variant="labelLarge">Base currency</Text>
             <SegmentedButtons
@@ -87,28 +102,25 @@ export function SettingsScreen({
 
           <View>
             <TextInput
-              error={Boolean(localeError)}
+              disabled
+              editable={false}
               label="Locale"
               mode="outlined"
-              onChangeText={(value) => {
-                clearError();
-                setLocale(value);
-              }}
               value={locale}
             />
-            <HelperText type={localeError ? "error" : "info"} visible>
-              {localeError ?? "Used for dates, currencies, and regional formatting."}
+            <HelperText type="info" visible>
+              Implied by country. Used for dates, currencies, and regional formatting.
             </HelperText>
           </View>
 
           <Button
-            disabled={!hasChanges || Boolean(localeError) || isSaving}
+            disabled={!hasChanges || isSaving}
             loading={isSaving}
             mode="contained"
             onPress={async () => {
               setIsSaving(true);
               try {
-                await updateSettings({ baseCurrency, locale: locale.trim() });
+                await updateSettings({ country, baseCurrency, locale: locale.trim() });
               } finally {
                 setIsSaving(false);
               }

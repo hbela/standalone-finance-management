@@ -3,18 +3,26 @@ import { eq } from "drizzle-orm";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { defaultCategories } from "../data/categories";
-import type { Account, Category, Currency, ImportBatch, Liability, Transaction, TransactionType } from "../data/types";
+import type { Account, Category, Country, Currency, ImportBatch, Liability, Transaction, TransactionType } from "../data/types";
 import { ensureMirrorDatabaseReady } from "../db/client";
-import type { AccountRow, CategoryRow, ImportBatchRow, LiabilityRow, TransactionRow } from "../db/mappers";
+import type { AccountRow, CategoryRow, ImportBatchRow, LiabilityRow, TransactionRow, UserRow } from "../db/mappers";
 import { isWebFallbackStorageEnabled, webFallbackStore } from "../db/webFallbackStore";
 import {
   accountsRepo,
   categoriesRepo,
   importBatchesRepo,
   liabilitiesRepo,
-  transactionsRepo
+  transactionsRepo,
+  usersRepo
 } from "../db/repositories";
 import * as schema from "../db/schema";
+import {
+  buildStaticSnapshot,
+  ensureFxSnapshot,
+  FX_CACHE_TTL_MS,
+  type FxSnapshot,
+  normalizeFxCurrency
+} from "../services/fxRates";
 import { runSQLitePFMDetection } from "../services/sqlitePfm";
 import {
   arePotentialDuplicateTransactions,
@@ -86,6 +94,7 @@ type FinanceContextValue = {
   liabilities: Liability[];
   importBatches: ImportBatch[];
   settings: {
+    country: Country;
     baseCurrency: Currency;
     locale: string;
   };
@@ -115,7 +124,7 @@ type FinanceContextValue = {
   addLiability: (input: NewLiabilityInput) => Promise<void>;
   updateLiability: (input: UpdateLiabilityInput) => Promise<void>;
   archiveLiability: (liabilityId: string) => Promise<void>;
-  updateSettings: (input: { baseCurrency: Currency; locale: string }) => Promise<void>;
+  updateSettings: (input: { country: Country; baseCurrency: Currency; locale: string }) => Promise<void>;
 };
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
@@ -162,17 +171,25 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         ? webFallbackStore.importBatches.list()
         : importBatchesRepo.list(await ensureMirrorDatabaseReady())
   });
-  const [error, setError] = useState<string | null>(null);
-  const [settings, setSettings] = useState<{ baseCurrency: Currency; locale: string }>({
-    baseCurrency: "EUR",
-    locale: "en-US"
+  const usersQuery = useQuery({
+    queryKey: sqliteFinanceQueryKeys.users,
+    queryFn: async () =>
+      isWebFallbackStorageEnabled()
+        ? webFallbackStore.users.list()
+        : usersRepo.list(await ensureMirrorDatabaseReady())
   });
+  const [error, setError] = useState<string | null>(null);
+  const settings = useMemo(() => {
+    const row = (usersQuery.data ?? []).find((candidate) => candidate.id === localSQLiteUserId);
+    return rowToSettings(row);
+  }, [usersQuery.data]);
   const isLoading =
     accountsQuery.isLoading ||
     categoriesQuery.isLoading ||
     transactionsQuery.isLoading ||
     liabilitiesQuery.isLoading ||
-    importBatchesQuery.isLoading;
+    importBatchesQuery.isLoading ||
+    usersQuery.isLoading;
 
   const accounts = useMemo<Account[]>(
     () =>
@@ -534,7 +551,25 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         });
       },
       updateSettings: async (input) => {
-        setSettings(input);
+        await runMutation(setError, async () => {
+          const now = Date.now();
+          const existing = (usersQuery.data ?? []).find((row) => row.id === localSQLiteUserId);
+          const row: UserRow = {
+            id: localSQLiteUserId,
+            clerkUserId: existing?.clerkUserId ?? localSQLiteClerkId,
+            country: input.country,
+            locale: input.locale,
+            baseCurrency: input.baseCurrency,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.users.upsert([row]);
+          } else {
+            await usersRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
+          await queryClient.invalidateQueries({ queryKey: sqliteFinanceQueryKeys.users });
+        });
       }
     }),
     [
@@ -547,10 +582,12 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
       isLoading,
       liabilitiesQuery.data,
       liabilities,
+      queryClient,
       refreshSQLiteQueries,
       settings,
       transactions,
-      transactionsQuery.data
+      transactionsQuery.data,
+      usersQuery.data
     ]
   );
 
@@ -559,6 +596,7 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
 
 export const sqliteFinanceQueryKeys = {
   root: ["sqlite-finance"] as const,
+  users: ["sqlite-finance", "users"] as const,
   accounts: ["sqlite-finance", "accounts"] as const,
   categories: ["sqlite-finance", "categories"] as const,
   transactions: ["sqlite-finance", "transactions"] as const,
@@ -567,10 +605,48 @@ export const sqliteFinanceQueryKeys = {
   recurringSubscriptions: ["sqlite-finance", "recurring-subscriptions"] as const,
   incomeStreams: ["sqlite-finance", "income-streams"] as const,
   expenseProfiles: ["sqlite-finance", "expense-profiles"] as const,
-  forecast: ["sqlite-finance", "forecast"] as const
+  forecast: ["sqlite-finance", "forecast"] as const,
+  fxSnapshot: ["sqlite-finance", "fx-snapshot"] as const
 };
 
+export function useFxSnapshot(base: Currency): FxSnapshot {
+  const placeholder = useMemo<FxSnapshot>(
+    () => buildStaticSnapshot(normalizeFxCurrency(base), Date.now()),
+    [base]
+  );
+  const query = useQuery<FxSnapshot>({
+    queryKey: [...sqliteFinanceQueryKeys.fxSnapshot, base],
+    queryFn: async () => {
+      if (isWebFallbackStorageEnabled()) {
+        return buildStaticSnapshot(normalizeFxCurrency(base), Date.now());
+      }
+      return ensureFxSnapshot(await ensureMirrorDatabaseReady(), base, Date.now());
+    },
+    placeholderData: placeholder,
+    staleTime: FX_CACHE_TTL_MS
+  });
+  return query.data ?? placeholder;
+}
+
 const localSQLiteUserId = "device-local-user";
+// Legacy column from the Clerk era; the schema still has it NOT NULL. We write a
+// sentinel so the row inserts cleanly. Dropping the column is a separate cleanup.
+const localSQLiteClerkId = "local";
+
+const DEFAULT_SETTINGS = {
+  country: "HU" as Country,
+  baseCurrency: "EUR" as Currency,
+  locale: "hu-HU"
+};
+
+function rowToSettings(row: UserRow | undefined) {
+  if (!row) return DEFAULT_SETTINGS;
+  return {
+    country: row.country as Country,
+    baseCurrency: row.baseCurrency as Currency,
+    locale: row.locale
+  };
+}
 
 function accountRowToAccount(row: AccountRow): Account {
   return {

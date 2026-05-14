@@ -5,7 +5,6 @@ import {
   Card,
   Divider,
   List,
-  SegmentedButtons,
   Text
 } from "react-native-paper";
 
@@ -14,38 +13,26 @@ import { ImportCsvDialog } from "../components/ImportCsvDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { banks } from "../data/mockFinance";
-import type { Bank, Currency } from "../data/types";
+import type { Bank } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
 
-const countries = [
-  { value: "HU", label: "Hungary" },
-  { value: "FR", label: "France" }
-];
-
-const currencies = [
-  { value: "EUR", label: "EUR" },
-  { value: "HUF", label: "HUF" },
-  { value: "USD", label: "USD" }
-];
-
 const setupSteps = [
-  "Create secure account",
-  "Choose country and base currency",
+  "Set country, currency, and locale in Settings",
   "Select local bank",
   "Import statement or add account"
 ];
 
 export function OnboardingScreen() {
-  const { accounts } = useFinance();
-  const [country, setCountry] = useState("HU");
-  const [currency, setCurrency] = useState("EUR");
+  const { accounts, settings } = useFinance();
+  const country = settings.country;
+  const currency = settings.baseCurrency;
   const [addAccountVisible, setAddAccountVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const countryName = country === "HU" ? "Hungary" : "France";
   const availableBanks = banks.filter((bank) => bank.country === countryName);
-  const defaultCurrency = selectedBank?.supportedCurrencies[0] ?? (currency as Currency);
+  const defaultCurrency = selectedBank?.supportedCurrencies[0] ?? currency;
 
   const openManualAccount = (bank: Bank) => {
     setSelectedBank(bank);
@@ -74,21 +61,11 @@ export function OnboardingScreen() {
             First launch setup
           </Text>
           <Text variant="headlineSmall" style={styles.heroTitle}>
-            Build the user's financial context before the dashboard opens.
+            Connect a bank to populate your dashboard.
           </Text>
           <Text variant="bodyMedium" style={styles.muted}>
-            Local bank import and on-device storage plug into these boundaries as backend services arrive.
+            Country, base currency, and locale live in Settings. Connect a bank below with CSV import or manual entry.
           </Text>
-        </Card.Content>
-      </Card>
-
-      <SectionTitle title="Profile" />
-      <Card mode="contained" style={styles.card}>
-        <Card.Content style={styles.formContent}>
-          <Text variant="labelLarge">Country</Text>
-          <SegmentedButtons value={country} onValueChange={setCountry} buttons={countries} />
-          <Text variant="labelLarge">Base currency</Text>
-          <SegmentedButtons value={currency} onValueChange={setCurrency} buttons={currencies} />
         </Card.Content>
       </Card>
 
@@ -116,14 +93,14 @@ export function OnboardingScreen() {
         ))}
       </Card>
 
-      <SectionTitle title="MVP Readiness" />
+      <SectionTitle title="Setup progress" />
       <Card mode="contained" style={styles.card}>
         {setupSteps.map((step, index) => (
           <View key={step}>
             <List.Item
               title={step}
               left={(props) => (
-                <List.Icon {...props} icon={index < 3 ? "check-circle" : "circle-outline"} />
+                <List.Icon {...props} icon={index < 2 ? "check-circle" : "circle-outline"} />
               )}
             />
             {index < setupSteps.length - 1 ? <Divider /> : null}
@@ -168,9 +145,6 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 8
-  },
-  formContent: {
-    gap: 14
   },
   bankMethods: {
     alignItems: "flex-end",

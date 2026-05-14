@@ -7,21 +7,22 @@ import { EditLiabilityDialog } from "../components/EditLiabilityDialog";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
-import { useFinance } from "../state/FinanceContext";
+import { useFinance, useFxSnapshot } from "../state/FinanceContext";
 import type { Liability } from "../data/types";
-import { toBaseCurrency } from "../utils/finance";
+import { toBaseCurrencyAmount } from "../services/fxRates";
 import { formatMoney } from "../utils/money";
 
 export function DebtsScreen() {
-  const { liabilities, isLoading, error, clearError } = useFinance();
+  const { liabilities, settings, isLoading, error, clearError } = useFinance();
+  const fxSnapshot = useFxSnapshot(settings.baseCurrency);
   const [addLiabilityVisible, setAddLiabilityVisible] = useState(false);
   const [selectedLiability, setSelectedLiability] = useState<Liability | null>(null);
   const totalDebt = liabilities.reduce(
-    (sum, liability) => sum + toBaseCurrency(liability.outstandingBalance, liability.currency),
+    (sum, liability) => sum + toBaseCurrencyAmount(liability.outstandingBalance, liability.currency, fxSnapshot),
     0
   );
   const monthlyCommitment = liabilities.reduce(
-    (sum, liability) => sum + toBaseCurrency(liability.paymentAmount, liability.currency),
+    (sum, liability) => sum + toBaseCurrencyAmount(liability.paymentAmount, liability.currency, fxSnapshot),
     0
   );
 
@@ -38,10 +39,10 @@ export function DebtsScreen() {
             Tracked liabilities
           </Text>
           <Text variant="headlineLarge" style={styles.summaryValue}>
-            {formatMoney(totalDebt, "EUR")}
+            {formatMoney(totalDebt, settings.baseCurrency)}
           </Text>
           <Text variant="bodyMedium" style={styles.muted}>
-            {formatMoney(monthlyCommitment, "EUR")} committed each month
+            {formatMoney(monthlyCommitment, settings.baseCurrency)} committed each month
           </Text>
           <View style={styles.actionRow}>
             <Button mode="contained" icon="plus" onPress={() => setAddLiabilityVisible(true)}>
