@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Button, Checkbox, Chip, Dialog, HelperText, Portal, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import { z } from "zod";
 
+import { AccountPicker } from "./AccountPicker";
 import { transactionTypeOptions } from "../data/categories";
 import type { TransactionType } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
@@ -33,14 +34,6 @@ type AddTransactionForm = z.input<typeof addTransactionSchema>;
 
 export function AddTransactionDialog({ visible, onDismiss }: AddTransactionDialogProps) {
   const { accounts, addTransaction, categories } = useFinance();
-  const accountButtons = useMemo(
-    () =>
-      accounts.slice(0, 4).map((account) => ({
-        label: account.name.length > 10 ? account.name.slice(0, 10) : account.name,
-        value: account.id
-      })),
-    [accounts]
-  );
   const defaultValues = useMemo<AddTransactionForm>(
     () => ({
       accountId: accounts[0]?.id ?? "",
@@ -82,7 +75,7 @@ export function AddTransactionDialog({ visible, onDismiss }: AddTransactionDialo
             <form.Field name="accountId">
               {(field) => (
                 <>
-                  <SegmentedButtons value={field.state.value} onValueChange={field.handleChange} buttons={accountButtons} />
+                  <AccountPicker accounts={accounts} value={field.state.value} onChange={field.handleChange} />
                   <HelperText type="error" visible={hasFieldError(field.state.meta.errors)}>
                     {getFieldError(field.state.meta.errors)}
                   </HelperText>

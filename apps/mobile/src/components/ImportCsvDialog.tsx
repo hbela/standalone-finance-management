@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Button, Checkbox, Dialog, HelperText, List, Portal, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
+import { AccountPicker } from "./AccountPicker";
 import {
   inspectTransactionsCsv,
   parseTransactionsCsv,
@@ -58,14 +59,6 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
         : { rows: [], errors: [], mapping: {}, dateFormat },
     [categories, csvText, dateFormat, mapping, selectedAccount]
   );
-  const accountButtons = useMemo(
-    () =>
-      accounts.slice(0, 4).map((account) => ({
-        label: account.name.length > 10 ? account.name.slice(0, 10) : account.name,
-        value: account.id
-      })),
-    [accounts]
-  );
   const recentBatches = useMemo(
     () => importBatches.filter((batch) => batch.accountId === selectedAccount?.id).slice(0, 3),
     [importBatches, selectedAccount?.id]
@@ -97,7 +90,7 @@ export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: Import
             style={styles.scrollView}
           >
             <Text variant="labelLarge">Account</Text>
-            <SegmentedButtons value={accountId} onValueChange={setAccountId} buttons={accountButtons} />
+            <AccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
             <View style={styles.confirmRow}>
               <Checkbox
                 status={isAccountConfirmed ? "checked" : "unchecked"}

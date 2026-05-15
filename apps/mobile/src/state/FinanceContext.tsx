@@ -251,72 +251,81 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
       clearError: () => setError(null),
       addAccount: async (input) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
           const now = Date.now();
-          await accountsRepo.upsert(db, [
-            {
-              id: `account-${now}`,
-              userId: localSQLiteUserId,
-              source: input.source,
-              bankId: input.bankId ?? null,
-              bankKey: input.bankId ?? null,
-              providerAccountId: null,
-              credentialsId: null,
-              name: input.name,
-              currency: input.currency,
-              type: input.type,
-              currentBalance: input.currentBalance,
-              availableBalance: null,
-              institutionName: null,
-              holderName: null,
-              iban: null,
-              bban: null,
-              lastSyncedAt: now,
-              archivedAt: null,
-              createdAt: now,
-              updatedAt: now
-            }
-          ]);
+          const row: AccountRow = {
+            id: `account-${now}`,
+            userId: localSQLiteUserId,
+            source: input.source,
+            bankId: input.bankId ?? null,
+            bankKey: input.bankId ?? null,
+            providerAccountId: null,
+            credentialsId: null,
+            name: input.name,
+            currency: input.currency,
+            type: input.type,
+            currentBalance: input.currentBalance,
+            availableBalance: null,
+            institutionName: null,
+            holderName: null,
+            iban: null,
+            bban: null,
+            lastSyncedAt: now,
+            archivedAt: null,
+            createdAt: now,
+            updatedAt: now
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.accounts.upsert([row]);
+          } else {
+            await accountsRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await refreshSQLiteQueries();
         });
       },
       updateAccount: async (input) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
           const current = accountsQuery.data?.find((account) => account.id === input.id);
           const now = Date.now();
-          await accountsRepo.upsert(db, [
-            {
-              id: input.id,
-              userId: current?.userId ?? localSQLiteUserId,
-              source: input.source,
-              bankId: input.bankId ?? current?.bankId ?? null,
-              bankKey: input.bankId ?? current?.bankKey ?? null,
-              providerAccountId: current?.providerAccountId ?? null,
-              credentialsId: current?.credentialsId ?? null,
-              name: input.name,
-              currency: input.currency,
-              type: input.type,
-              currentBalance: input.currentBalance,
-              availableBalance: current?.availableBalance ?? null,
-              institutionName: current?.institutionName ?? null,
-              holderName: current?.holderName ?? null,
-              iban: current?.iban ?? null,
-              bban: current?.bban ?? null,
-              lastSyncedAt: current?.lastSyncedAt ?? null,
-              archivedAt: current?.archivedAt ?? null,
-              createdAt: current?.createdAt ?? now,
-              updatedAt: now
-            }
-          ]);
+          const row: AccountRow = {
+            id: input.id,
+            userId: current?.userId ?? localSQLiteUserId,
+            source: input.source,
+            bankId: input.bankId ?? current?.bankId ?? null,
+            bankKey: input.bankId ?? current?.bankKey ?? null,
+            providerAccountId: current?.providerAccountId ?? null,
+            credentialsId: current?.credentialsId ?? null,
+            name: input.name,
+            currency: input.currency,
+            type: input.type,
+            currentBalance: input.currentBalance,
+            availableBalance: current?.availableBalance ?? null,
+            institutionName: current?.institutionName ?? null,
+            holderName: current?.holderName ?? null,
+            iban: current?.iban ?? null,
+            bban: current?.bban ?? null,
+            lastSyncedAt: current?.lastSyncedAt ?? null,
+            archivedAt: current?.archivedAt ?? null,
+            createdAt: current?.createdAt ?? now,
+            updatedAt: now
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.accounts.upsert([row]);
+          } else {
+            await accountsRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await refreshSQLiteQueries();
         });
       },
       archiveAccount: async (accountId) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
-          await db.delete(schema.transactions).where(eq(schema.transactions.accountId, accountId));
-          await db.delete(schema.accounts).where(eq(schema.accounts.id, accountId));
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.transactions.deleteWhere((row) => row.accountId === accountId);
+            await webFallbackStore.accounts.deleteById(accountId);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
+            await db.delete(schema.transactions).where(eq(schema.transactions.accountId, accountId));
+            await db.delete(schema.accounts).where(eq(schema.accounts.id, accountId));
+          }
           await refreshSQLiteQueries();
         });
       },
@@ -325,28 +334,34 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         if (!normalizedName) return;
         await runMutation(setError, async () => {
           const now = Date.now();
-          await categoriesRepo.upsert(await ensureMirrorDatabaseReady(), [
-            {
-              id: `category-${normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-              userId: localSQLiteUserId,
-              name: normalizedName,
-              tinkCategoryCode: null,
-              archivedAt: null,
-              createdAt: now,
-              updatedAt: now
-            }
-          ]);
+          const row: CategoryRow = {
+            id: `category-${normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+            userId: localSQLiteUserId,
+            name: normalizedName,
+            tinkCategoryCode: null,
+            archivedAt: null,
+            createdAt: now,
+            updatedAt: now
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.categories.upsert([row]);
+          } else {
+            await categoriesRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await refreshSQLiteQueries();
         });
       },
       archiveCategory: async (name) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
           const row = categoriesQuery.data?.find((category) => category.name === name);
-          if (row) {
+          if (!row) return;
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.categories.deleteById(row.id);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
             await db.delete(schema.categories).where(eq(schema.categories.id, row.id));
-            await refreshSQLiteQueries();
           }
+          await refreshSQLiteQueries();
         });
       },
       addTransaction: async (input) => {
@@ -358,44 +373,49 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         const signedAmount = normalizeAmount(input.amount, input.type);
         await runMutation(setError, async () => {
           const now = Date.now();
-          const db = await ensureMirrorDatabaseReady();
-          const fxSnapshot = await ensureFxSnapshot(db, "EUR", now);
-          await transactionsRepo.upsert(db, [
-            {
-              id: `transaction-${now}`,
-              userId: localSQLiteUserId,
+          const useFallback = isWebFallbackStorageEnabled();
+          const fxSnapshot = useFallback
+            ? buildStaticSnapshot("EUR", now)
+            : await ensureFxSnapshot(await ensureMirrorDatabaseReady(), "EUR", now);
+          const row: TransactionRow = {
+            id: `transaction-${now}`,
+            userId: localSQLiteUserId,
+            accountId: account.id,
+            source: account.source,
+            providerTransactionId: null,
+            postedAt: Date.parse(input.postedAt),
+            amount: signedAmount,
+            currency: account.currency,
+            baseCurrencyAmount: toBaseCurrencyAmount(signedAmount, account.currency, fxSnapshot),
+            description: input.description,
+            merchant: input.merchant,
+            categoryId: input.category,
+            tinkCategoryCode: null,
+            importBatchId: null,
+            type: input.type,
+            isRecurring: input.isRecurring,
+            recurringGroupId: null,
+            isExcludedFromReports: input.type === "transfer",
+            transferMatchId: null,
+            dedupeHash: createTransactionDedupeHash({
               accountId: account.id,
-              source: account.source,
-              providerTransactionId: null,
-              postedAt: Date.parse(input.postedAt),
+              postedAt: input.postedAt,
               amount: signedAmount,
               currency: account.currency,
-              baseCurrencyAmount: toBaseCurrencyAmount(signedAmount, account.currency, fxSnapshot),
               description: input.description,
-              merchant: input.merchant,
-              categoryId: input.category,
-              tinkCategoryCode: null,
-              importBatchId: null,
-              type: input.type,
-              isRecurring: input.isRecurring,
-              recurringGroupId: null,
-              isExcludedFromReports: input.type === "transfer",
-              transferMatchId: null,
-              dedupeHash: createTransactionDedupeHash({
-                accountId: account.id,
-                postedAt: input.postedAt,
-                amount: signedAmount,
-                currency: account.currency,
-                description: input.description,
-                merchant: input.merchant
-              }),
-              status: "booked",
-              notes: null,
-              archivedAt: null,
-              createdAt: now,
-              updatedAt: now
-            }
-          ]);
+              merchant: input.merchant
+            }),
+            status: "booked",
+            notes: null,
+            archivedAt: null,
+            createdAt: now,
+            updatedAt: now
+          };
+          if (useFallback) {
+            await webFallbackStore.transactions.upsert([row]);
+          } else {
+            await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
@@ -409,55 +429,60 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         return await runMutation(setError, async () => {
           const now = Date.now();
           const batchId = `import-${now}`;
-          const db = await ensureMirrorDatabaseReady();
-          const fxSnapshot = await ensureFxSnapshot(db, "EUR", now);
-          await importBatchesRepo.upsert(db, [
-            {
-              id: batchId,
-              userId: localSQLiteUserId,
-              accountId: account.id,
-              source: "csv",
-              status: "completed",
-              sourceName: metadata?.sourceName ?? null,
-              rowCount: metadata?.rowCount ?? rows.length,
-              importedCount: rows.length,
-              skippedCount: 0,
-              columnMapping: JSON.stringify(metadata?.columnMapping ?? {}),
-              dateFormat: metadata?.dateFormat ?? "auto",
-              createdAt: now,
-              updatedAt: now
-            }
-          ]);
-          await transactionsRepo.upsert(
-            db,
-            rows.map((row, index) => ({
-              id: `transaction-${now}-${index}`,
-              userId: localSQLiteUserId,
-              accountId: account.id,
-              source: account.source,
-              providerTransactionId: null,
-              postedAt: Date.parse(row.postedAt),
-              amount: row.amount,
-              currency: row.currency,
-              baseCurrencyAmount: toBaseCurrencyAmount(row.amount, row.currency, fxSnapshot),
-              description: row.description,
-              merchant: row.merchant,
-              categoryId: row.category,
-              tinkCategoryCode: null,
-              importBatchId: batchId,
-              type: row.type,
-              isRecurring: false,
-              recurringGroupId: null,
-              isExcludedFromReports: row.type === "transfer",
-              transferMatchId: null,
-              dedupeHash: row.dedupeHash,
-              status: "booked",
-              notes: "Imported from CSV",
-              archivedAt: null,
-              createdAt: now,
-              updatedAt: now
-            }))
-          );
+          const useFallback = isWebFallbackStorageEnabled();
+          const fxSnapshot = useFallback
+            ? buildStaticSnapshot("EUR", now)
+            : await ensureFxSnapshot(await ensureMirrorDatabaseReady(), "EUR", now);
+          const batchRow: ImportBatchRow = {
+            id: batchId,
+            userId: localSQLiteUserId,
+            accountId: account.id,
+            source: "csv",
+            status: "completed",
+            sourceName: metadata?.sourceName ?? null,
+            rowCount: metadata?.rowCount ?? rows.length,
+            importedCount: rows.length,
+            skippedCount: 0,
+            columnMapping: JSON.stringify(metadata?.columnMapping ?? {}),
+            dateFormat: metadata?.dateFormat ?? "auto",
+            createdAt: now,
+            updatedAt: now
+          };
+          const transactionRows: TransactionRow[] = rows.map((row, index) => ({
+            id: `transaction-${now}-${index}`,
+            userId: localSQLiteUserId,
+            accountId: account.id,
+            source: account.source,
+            providerTransactionId: null,
+            postedAt: Date.parse(row.postedAt),
+            amount: row.amount,
+            currency: row.currency,
+            baseCurrencyAmount: toBaseCurrencyAmount(row.amount, row.currency, fxSnapshot),
+            description: row.description,
+            merchant: row.merchant,
+            categoryId: row.category,
+            tinkCategoryCode: null,
+            importBatchId: batchId,
+            type: row.type,
+            isRecurring: false,
+            recurringGroupId: null,
+            isExcludedFromReports: row.type === "transfer",
+            transferMatchId: null,
+            dedupeHash: row.dedupeHash,
+            status: "booked",
+            notes: "Imported from CSV",
+            archivedAt: null,
+            createdAt: now,
+            updatedAt: now
+          }));
+          if (useFallback) {
+            await webFallbackStore.importBatches.upsert([batchRow]);
+            await webFallbackStore.transactions.upsert(transactionRows);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
+            await importBatchesRepo.upsert(db, [batchRow]);
+            await transactionsRepo.upsert(db, transactionRows);
+          }
           await runSQLitePFMDetection();
           await refreshSQLiteQueries();
           return { imported: rows.length, skipped: 0, batchId };
@@ -467,90 +492,112 @@ function SQLiteFinanceProvider({ children }: { children: ReactNode }) {
         await runMutation(setError, async () => {
           const current = transactionsQuery.data?.find((transaction) => transaction.id === input.id);
           if (!current) return;
-          await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [
-            {
-              ...current,
-              categoryId: input.transferMatchId ? "Internal transfer" : input.category,
-              type: input.transferMatchId ? "transfer" : input.type,
-              merchant: input.merchant,
-              description: input.description,
-              notes: input.notes ?? null,
-              isRecurring: input.isRecurring,
-              isExcludedFromReports: input.transferMatchId ? true : input.isExcludedFromReports,
-              transferMatchId: input.transferMatchId ?? null,
-              updatedAt: Date.now()
-            }
-          ]);
+          const row: TransactionRow = {
+            ...current,
+            categoryId: input.transferMatchId ? "Internal transfer" : input.category,
+            type: input.transferMatchId ? "transfer" : input.type,
+            merchant: input.merchant,
+            description: input.description,
+            notes: input.notes ?? null,
+            isRecurring: input.isRecurring,
+            isExcludedFromReports: input.transferMatchId ? true : input.isExcludedFromReports,
+            transferMatchId: input.transferMatchId ?? null,
+            updatedAt: Date.now()
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.transactions.upsert([row]);
+          } else {
+            await transactionsRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
       },
       archiveTransaction: async (transactionId) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
-          await db.delete(schema.transactions).where(eq(schema.transactions.id, transactionId));
-          await runSQLitePFMDetection(db);
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.transactions.deleteById(transactionId);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
+            await db.delete(schema.transactions).where(eq(schema.transactions.id, transactionId));
+          }
+          await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
       },
       revertImportBatch: async (importBatchId) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
-          await db.delete(schema.transactions).where(eq(schema.transactions.importBatchId, importBatchId));
-          await db.delete(schema.importBatches).where(eq(schema.importBatches.id, importBatchId));
-          await runSQLitePFMDetection(db);
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.transactions.deleteWhere((row) => row.importBatchId === importBatchId);
+            await webFallbackStore.importBatches.deleteById(importBatchId);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
+            await db.delete(schema.transactions).where(eq(schema.transactions.importBatchId, importBatchId));
+            await db.delete(schema.importBatches).where(eq(schema.importBatches.id, importBatchId));
+          }
+          await runSQLitePFMDetection();
           await refreshSQLiteQueries();
         });
       },
       addLiability: async (input) => {
         await runMutation(setError, async () => {
           const now = Date.now();
-          await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [
-            {
-              id: `liability-${now}`,
-              userId: localSQLiteUserId,
-              linkedAccountId: null,
-              ...input,
-              paymentFrequency: "monthly",
-              archivedAt: null,
-              createdAt: now,
-              updatedAt: now
-            }
-          ]);
+          const row: LiabilityRow = {
+            id: `liability-${now}`,
+            userId: localSQLiteUserId,
+            linkedAccountId: null,
+            ...input,
+            paymentFrequency: "monthly",
+            archivedAt: null,
+            createdAt: now,
+            updatedAt: now
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.liabilities.upsert([row]);
+          } else {
+            await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await refreshSQLiteQueries();
         });
       },
       updateLiability: async (input) => {
         await runMutation(setError, async () => {
           const current = liabilitiesQuery.data?.find((liability) => liability.id === input.id);
-          await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [
-            {
-              id: input.id,
-              userId: current?.userId ?? localSQLiteUserId,
-              linkedAccountId: current?.linkedAccountId ?? null,
-              name: input.name,
-              institution: input.institution,
-              type: input.type,
-              currency: input.currency,
-              originalPrincipal: input.originalPrincipal,
-              outstandingBalance: input.outstandingBalance,
-              interestRate: input.interestRate,
-              paymentAmount: input.paymentAmount,
-              paymentFrequency: input.paymentFrequency,
-              nextDueDate: input.nextDueDate,
-              rateType: input.rateType,
-              archivedAt: current?.archivedAt ?? null,
-              createdAt: current?.createdAt ?? Date.now(),
-              updatedAt: Date.now()
-            }
-          ]);
+          const row: LiabilityRow = {
+            id: input.id,
+            userId: current?.userId ?? localSQLiteUserId,
+            linkedAccountId: current?.linkedAccountId ?? null,
+            name: input.name,
+            institution: input.institution,
+            type: input.type,
+            currency: input.currency,
+            originalPrincipal: input.originalPrincipal,
+            outstandingBalance: input.outstandingBalance,
+            interestRate: input.interestRate,
+            paymentAmount: input.paymentAmount,
+            paymentFrequency: input.paymentFrequency,
+            nextDueDate: input.nextDueDate,
+            rateType: input.rateType,
+            archivedAt: current?.archivedAt ?? null,
+            createdAt: current?.createdAt ?? Date.now(),
+            updatedAt: Date.now()
+          };
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.liabilities.upsert([row]);
+          } else {
+            await liabilitiesRepo.upsert(await ensureMirrorDatabaseReady(), [row]);
+          }
           await refreshSQLiteQueries();
         });
       },
       archiveLiability: async (liabilityId) => {
         await runMutation(setError, async () => {
-          const db = await ensureMirrorDatabaseReady();
-          await db.delete(schema.liabilities).where(eq(schema.liabilities.id, liabilityId));
+          if (isWebFallbackStorageEnabled()) {
+            await webFallbackStore.liabilities.deleteById(liabilityId);
+          } else {
+            const db = await ensureMirrorDatabaseReady();
+            await db.delete(schema.liabilities).where(eq(schema.liabilities.id, liabilityId));
+          }
           await refreshSQLiteQueries();
         });
       },
