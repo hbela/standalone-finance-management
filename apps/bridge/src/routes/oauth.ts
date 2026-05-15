@@ -3,6 +3,7 @@ import type { Env } from "../env.js";
 import {
   buildOAuthDeepLink,
   buildOAuthErrorDeepLink,
+  buildOAuthErrorWebRedirect,
   buildOAuthWebRedirect,
   type OAuthProviderName,
 } from "../lib/deepLink.js";
@@ -30,30 +31,18 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
     const error = url.searchParams.get("error");
     const errorDescription = url.searchParams.get("error_description");
 
-    if (error) {
-      return c.redirect(
-        buildOAuthErrorDeepLink({
-          scheme: c.env.APP_DEEP_LINK_SCHEME,
-          provider,
-          state,
-          error,
-          errorDescription: errorDescription ?? undefined,
-        }),
+    const errorRedirect = (errorCode: string, description?: string) =>
+      c.redirect(
+        buildErrorTarget(c.env.APP_DEEP_LINK_SCHEME, provider, state, errorCode, description),
         302
       );
+
+    if (error) {
+      return errorRedirect(error, errorDescription ?? undefined);
     }
 
     if (!code || !state) {
-      return c.redirect(
-        buildOAuthErrorDeepLink({
-          scheme: c.env.APP_DEEP_LINK_SCHEME,
-          provider,
-          state,
-          error: "invalid_request",
-          errorDescription: "Missing code or state",
-        }),
-        302
-      );
+      return errorRedirect("invalid_request", "Missing code or state");
     }
 
     try {
@@ -82,18 +71,9 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Token exchange failed";
-      const code =
+      const errCode =
         err instanceof ProviderTokenError && err.errorCode ? err.errorCode : "exchange_failed";
-      return c.redirect(
-        buildOAuthErrorDeepLink({
-          scheme: c.env.APP_DEEP_LINK_SCHEME,
-          provider,
-          state,
-          error: code,
-          errorDescription: message,
-        }),
-        302
-      );
+      return errorRedirect(errCode, message);
     }
   });
 
@@ -146,6 +126,20 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
   });
 
   return app;
+}
+
+function buildErrorTarget(
+  scheme: string,
+  provider: OAuthProviderName,
+  state: string | null,
+  error: string,
+  errorDescription?: string
+) {
+  const webReturnUrl = state ? parseLocalWebReturnUrl(state) : null;
+  if (webReturnUrl) {
+    return buildOAuthErrorWebRedirect({ returnUrl: webReturnUrl, state, error, errorDescription });
+  }
+  return buildOAuthErrorDeepLink({ scheme, provider, state, error, errorDescription });
 }
 
 function parseLocalWebReturnUrl(state: string) {

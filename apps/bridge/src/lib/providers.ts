@@ -80,12 +80,18 @@ async function parseTokenResponse(response: Response, label: string): Promise<To
       payload && typeof payload === "object"
         ? typeof payload.error_description === "string"
           ? payload.error_description
-          : typeof payload.error === "string"
-            ? payload.error
-            : `${label} token request failed with ${response.status}`
+          : typeof payload.errorMessage === "string"
+            ? payload.errorMessage
+            : typeof payload.error === "string"
+              ? payload.error
+              : `${label} token request failed with ${response.status}`
         : `${label} token request failed with ${response.status}`;
     const errorCode =
-      payload && typeof payload.error === "string" ? payload.error : undefined;
+      payload && typeof payload.errorCode === "string"
+        ? payload.errorCode
+        : payload && typeof payload.error === "string"
+          ? payload.error
+          : undefined;
     throw new ProviderTokenError(String(message), response.status, errorCode);
   }
 

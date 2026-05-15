@@ -395,6 +395,7 @@ function useBankConnection(
       try {
         await task();
       } catch (caught) {
+        console.error("[BankConnection] action failed", nextAction, caught);
         setError(caught instanceof Error ? caught.message : "Bank connection action failed.");
       } finally {
         setAction(null);

@@ -1,12 +1,10 @@
-name = "wise-finance-bridge"
+name = "standalone-finance-bridge"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Public env (non-secret). Defaults assume the Tink sandbox tier.
 # Override per environment block below or via `wrangler secret put` for secrets.
-# NOTE: the worker name above is kept as `wise-finance-bridge` for now to avoid
-# a rename + Tink Console redirect URI update. Rename is tracked separately.
 [vars]
 TINK_API_BASE_URL = "https://api.tink.com"
 APP_DEEP_LINK_SCHEME = "standalone-finance"

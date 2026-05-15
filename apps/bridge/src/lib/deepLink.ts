@@ -59,3 +59,18 @@ export function buildOAuthErrorDeepLink(input: {
   if (input.errorDescription) fragment.set("error_description", input.errorDescription);
   return `${input.scheme}://oauth/${input.provider}#${fragment.toString()}`;
 }
+
+export function buildOAuthErrorWebRedirect(input: {
+  returnUrl: string;
+  state: string | null;
+  error: string;
+  errorDescription?: string;
+}): string {
+  const url = new URL(input.returnUrl);
+  const fragment = new URLSearchParams();
+  if (input.state) fragment.set("state", input.state);
+  fragment.set("error", input.error);
+  if (input.errorDescription) fragment.set("error_description", input.errorDescription);
+  url.hash = fragment.toString();
+  return url.toString();
+}

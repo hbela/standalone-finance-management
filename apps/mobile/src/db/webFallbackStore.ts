@@ -37,12 +37,11 @@ const emptyState: WebFallbackState = {
 };
 
 export function isWebFallbackStorageEnabled() {
-  if (typeof window === "undefined") return false;
-  if (typeof SharedArrayBuffer === "undefined") return true;
-  // SharedArrayBuffer is defined as a global, but the wa-sqlite worker can only
-  // actually construct/use it inside a cross-origin-isolated context. Without
-  // isolation, expo-sqlite's web worker throws ReferenceError on boot.
-  return !globalThis.crossOriginIsolated;
+  // Force localStorage fallback on all web contexts. wa-sqlite's worker times out
+  // on this dev setup even when crossOriginIsolated reports true (see error
+  // "Sync operation timeout" thrown from openDatabaseSync). Native is unaffected.
+  if (typeof window !== "undefined") return true;
+  return false;
 }
 
 export const webFallbackStore = {

@@ -99,7 +99,7 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Tink integration
 
-- OAuth: device opens Tink Link URL → Tink redirects to `https://wise-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to `standalone-finance://oauth/tink#access_token=…&refresh_token=…` (or to a localhost web origin on Expo web) → mobile stores tokens in SecureStore/localStorage. The deployed worker name is still `wise-finance-bridge` (rename deferred).
+- OAuth: device opens Tink Link URL → Tink redirects to `https://standalone-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to `standalone-finance://oauth/tink#access_token=…&refresh_token=…` (or to a localhost web origin on Expo web) → mobile stores tokens in SecureStore/localStorage.
 - Data fetch: mobile calls `${EXPO_PUBLIC_TINK_BRIDGE_URL}/tink/data/v2/{accounts,transactions}` with `Authorization: Bearer <access_token>`. Bridge proxies to `api.tink.com/data/v2/*` and adds `Access-Control-Allow-Origin: *` (required for Expo web; native ignores it).
 - Tink v2 `accounts[].identifiers` is an **object** keyed by identifier type (`{ iban: { iban }, bban: { bban }, sortCode: ... }`), not an array. Mobile-side `extractAccountIdentifiers` tolerates both shapes.
 - Categories: raw Tink code is preserved on `transactions.tinkCategoryCode`; the mapped name lives in `categoryId`. Mapping is in [tinkCategoryMapping.ts](apps/mobile/src/integrations/tinkCategoryMapping.ts).
@@ -137,7 +137,7 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 ### Mobile
 
 - `EXPO_PUBLIC_TINK_CLIENT_ID`
-- `EXPO_PUBLIC_TINK_BRIDGE_URL` (e.g., `https://wise-finance-bridge.hajzerbela.workers.dev`)
+- `EXPO_PUBLIC_TINK_BRIDGE_URL` (e.g., `https://standalone-finance-bridge.hajzerbela.workers.dev`)
 - `EXPO_PUBLIC_TINK_REDIRECT_URI` (the bridge's callback URL)
 - `EXPO_PUBLIC_TINK_WEB_REDIRECT_URI` (optional Expo web localhost return URL — runtime-derived from `window.location.origin` if missing)
 - `EXPO_PUBLIC_TINK_MARKET` (use `GB` with the UK demo bank; `SE` will silently filter SEK accounts)
@@ -157,8 +157,8 @@ Set via `wrangler secret put` (or `.dev.vars` for `wrangler dev`):
 
 ## Sandbox & smoke checks
 
-- Bridge health: `https://wise-finance-bridge.hajzerbela.workers.dev/health` → `{"status":"ok"}`.
-- Bridge CORS smoke: `curl --ssl-no-revoke -i "https://wise-finance-bridge.hajzerbela.workers.dev/tink/data/v2/accounts"` should return `401 Unauthorized` with `access-control-allow-origin: *` (Windows curl needs `--ssl-no-revoke` because schannel can't always reach Cloudflare's CRL).
+- Bridge health: `https://standalone-finance-bridge.hajzerbela.workers.dev/health` → `{"status":"ok"}`.
+- Bridge CORS smoke: `curl --ssl-no-revoke -i "https://standalone-finance-bridge.hajzerbela.workers.dev/tink/data/v2/accounts"` should return `401 Unauthorized` with `access-control-allow-origin: *` (Windows curl needs `--ssl-no-revoke` because schannel can't always reach Cloudflare's CRL).
 - End-to-end on a phone: connect → sync → confirm dashboard cards populate; leave idle past 119 minutes → bring app back → confirm the chip in Settings shows a fresh "Sandbox token stored <time>" (verifies the M5.4 scheduler).
 
 ## Operating notes
@@ -166,4 +166,4 @@ Set via `wrangler secret put` (or `.dev.vars` for `wrangler dev`):
 - Platform is Windows; PowerShell is the default shell. Bash is also wired for the Bash tool. Use absolute paths in shell commands. Avoid `cd <pwd> && …` chains — the working directory is already correct.
 - Node 22+ in CI; package manager is `npm@11.9.0`. Don't switch to pnpm/yarn.
 - `git status` is the source of truth for branch state. Never amend pushed commits without an explicit ask.
-- After any code change to `apps/bridge/src/*`, you must `npm run deploy:bridge` for the change to take effect on `wise-finance-bridge.hajzerbela.workers.dev`. `wrangler dev` runs locally on `:8787` if you need a faster loop.
+- After any code change to `apps/bridge/src/*`, you must `npm run deploy:bridge` for the change to take effect on `standalone-finance-bridge.hajzerbela.workers.dev`. `wrangler dev` runs locally on `:8787` if you need a faster loop.
