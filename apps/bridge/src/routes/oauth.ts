@@ -3,7 +3,9 @@ import type { Env } from "../env.js";
 import {
   buildOAuthDeepLink,
   buildOAuthErrorDeepLink,
+  buildOAuthErrorUniversalLink,
   buildOAuthErrorWebRedirect,
+  buildOAuthUniversalLink,
   buildOAuthWebRedirect,
   type OAuthProviderName,
 } from "../lib/deepLink.js";
@@ -33,7 +35,14 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
 
     const errorRedirect = (errorCode: string, description?: string) =>
       c.redirect(
-        buildErrorTarget(c.env.APP_DEEP_LINK_SCHEME, provider, state, errorCode, description),
+        buildErrorTarget(
+          c.env.APP_DEEP_LINK_SCHEME,
+          c.env.APP_UNIVERSAL_LINK_HOST,
+          provider,
+          state,
+          errorCode,
+          description
+        ),
         302
       );
 
@@ -52,6 +61,19 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
         return c.redirect(
           buildOAuthWebRedirect({
             returnUrl: webReturnUrl,
+            provider,
+            state,
+            payload: tokens,
+          }),
+          302
+        );
+      }
+
+      const universalHost = c.env.APP_UNIVERSAL_LINK_HOST;
+      if (universalHost) {
+        return c.redirect(
+          buildOAuthUniversalLink({
+            host: universalHost,
             provider,
             state,
             payload: tokens,
@@ -130,6 +152,7 @@ export function createOAuthRoutes(provider: OAuthProviderName, handlers: OAuthPr
 
 function buildErrorTarget(
   scheme: string,
+  universalHost: string | undefined,
   provider: OAuthProviderName,
   state: string | null,
   error: string,
@@ -138,6 +161,15 @@ function buildErrorTarget(
   const webReturnUrl = state ? parseLocalWebReturnUrl(state) : null;
   if (webReturnUrl) {
     return buildOAuthErrorWebRedirect({ returnUrl: webReturnUrl, state, error, errorDescription });
+  }
+  if (universalHost) {
+    return buildOAuthErrorUniversalLink({
+      host: universalHost,
+      provider,
+      state,
+      error,
+      errorDescription,
+    });
   }
   return buildOAuthErrorDeepLink({ scheme, provider, state, error, errorDescription });
 }

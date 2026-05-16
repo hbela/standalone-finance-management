@@ -5,4 +5,9 @@ export type Env = {
   TINK_API_BASE_URL: string;
   APP_DEEP_LINK_SCHEME: string;
   SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS: string;
+  APP_UNIVERSAL_LINK_HOST?: string;
+  IOS_APP_BUNDLE_ID?: string;
+  IOS_TEAM_ID?: string;
+  ANDROID_PACKAGE_NAME?: string;
+  ANDROID_SHA256_FINGERPRINTS?: string;
 };

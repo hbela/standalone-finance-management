@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildOAuthDeepLink,
   buildOAuthErrorDeepLink,
+  buildOAuthErrorUniversalLink,
+  buildOAuthUniversalLink,
   buildOAuthWebRedirect,
 } from "../src/lib/deepLink.js";
 
@@ -85,5 +87,39 @@ describe("deepLink", () => {
     });
 
     expect(link).toBe("standalone-finance://oauth/tink#error=invalid_request");
+  });
+
+  it("builds a Universal Link with all token fields", () => {
+    const link = buildOAuthUniversalLink({
+      host: "finance.appointer.hu",
+      provider: "tink",
+      state: "abc",
+      payload: {
+        access_token: "tok-access",
+        refresh_token: "tok-refresh",
+        expires_in: 3600,
+      },
+    });
+
+    expect(link.startsWith("https://finance.appointer.hu/oauth/tink#")).toBe(true);
+    const fragment = new URLSearchParams(link.split("#")[1]);
+    expect(fragment.get("state")).toBe("abc");
+    expect(fragment.get("access_token")).toBe("tok-access");
+    expect(fragment.get("refresh_token")).toBe("tok-refresh");
+    expect(fragment.get("expires_in")).toBe("3600");
+  });
+
+  it("builds a Universal Link error", () => {
+    const link = buildOAuthErrorUniversalLink({
+      host: "finance.appointer.hu",
+      provider: "tink",
+      state: "s1",
+      error: "access_denied",
+      errorDescription: "User cancelled bank login",
+    });
+
+    expect(link).toBe(
+      "https://finance.appointer.hu/oauth/tink#state=s1&error=access_denied&error_description=User+cancelled+bank+login"
+    );
   });
 });

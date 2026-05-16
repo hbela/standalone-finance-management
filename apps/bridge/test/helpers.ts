@@ -10,6 +10,15 @@ export const testEnv: Env = {
   SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS: "300",
 };
 
+export const universalLinkEnv: Env = {
+  ...testEnv,
+  APP_UNIVERSAL_LINK_HOST: "finance.appointer.hu",
+  IOS_APP_BUNDLE_ID: "com.elyscom.standalonefinancemanagement",
+  IOS_TEAM_ID: "ABCDE12345",
+  ANDROID_PACKAGE_NAME: "com.elyscom.standalonefinancemanagement",
+  ANDROID_SHA256_FINGERPRINTS: "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+};
+
 export function tokenResponse(overrides: Record<string, unknown> = {}) {
   return {
     access_token: "tink-access",

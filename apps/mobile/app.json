@@ -10,18 +10,43 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.elyscom.standalonefinancemanagement",
+      "associatedDomains": [
+        "applinks:finance.appointer.hu"
+      ]
     },
     "android": {
+      "package": "com.elyscom.standalonefinancemanagement",
       "adaptiveIcon": {
         "backgroundColor": "#F5F7F9"
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "finance.appointer.hu",
+              "pathPrefix": "/oauth"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "owner": "elyscom",
+    "extra": {
+      "eas": {
+        "projectId": "0977bdb6-f276-480d-92f3-fc5b6dbe3899"
+      }
+    }
   }
 }

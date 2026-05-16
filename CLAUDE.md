@@ -7,7 +7,7 @@ Personal-finance app with EU bank aggregation via Tink and a forward-looking PFM
 End-state shape, fully landed as of 2026-05-12 (M6 cleanup complete):
 
 - **Mobile (Expo, `apps/mobile/`)** holds everything: Expo SQLite ledger, SecureStore for tokens, ported PFM heuristics, Frankfurter FX cache (in SQLite, 24h TTL), biometric gate via `expo-local-authentication`. No cloud identity.
-- **Bridge (`apps/bridge/`, Cloudflare Worker)** is stateless. Holds `TINK_CLIENT_SECRET`, exchanges OAuth codes for tokens (`/oauth/tink/{callback,refresh}`), and proxies Tink data calls with CORS headers (`/tink/data/v2/{accounts,transactions}`). Stores nothing.
+- **Bridge (`apps/bridge/`, Cloudflare Worker)** is stateless. Holds `TINK_CLIENT_SECRET`, exchanges OAuth codes for tokens (`/oauth/tink/{callback,refresh}`), and proxies Tink data calls with CORS headers (`/tink/data/v2/{accounts,transactions}`). When `APP_UNIVERSAL_LINK_HOST` is configured (production), also serves `/.well-known/apple-app-site-association`, `/.well-known/assetlinks.json`, and a hand-off HTML page at `/oauth/tink` so iOS / Android can intercept the OAuth return via Universal Links / App Links instead of the hijackable `standalone-finance://` custom scheme. Stores nothing.
 
 The legacy `convex/`, `apps/api/`, `@clerk/clerk-expo`, and Coolify deployment are gone — `git log -- convex apps/api` recovers the history if you ever need it. Current focus: **M7** — App Store readiness (privacy policy, store listings, icon/splash, accessibility pass, crash reporting, encrypted export).
 
@@ -35,13 +35,15 @@ apps/
                       # csvImport.ts, finance.ts, money.ts, recurring.ts
   bridge/             # Cloudflare Worker — OAuth + data proxy
     src/
-      index.ts        # Hono router, mounts /oauth/tink + /tink/data/v2 + /health
-      env.ts          # Env binding shape
+      index.ts        # Hono router, mounts /oauth/tink + /tink/data/v2 + /.well-known + /health
+      env.ts          # Env binding shape (includes APP_UNIVERSAL_LINK_HOST, IOS_*, ANDROID_*)
       routes/
-        oauth.ts      # createOAuthRoutes("tink") — GET callback, POST refresh
-        tinkProxy.ts  # createTinkDataProxyRoutes — GET accounts, GET transactions (CORS)
+        oauth.ts        # createOAuthRoutes("tink") — GET callback, POST refresh
+        oauthHandoff.ts # renderHandoffHtml — fallback page when Universal Link doesn't intercept
+        tinkProxy.ts    # createTinkDataProxyRoutes — GET accounts, GET transactions (CORS)
+        wellKnown.ts    # createWellKnownRoutes — apple-app-site-association + assetlinks.json
       lib/            # signature.ts (Ed25519 verify), deepLink.ts, providers.ts (token exchange), http.ts
-    test/             # Vitest smoke tests (3 files, 26 scenarios)
+    test/             # Vitest smoke tests (5 files, 51 scenarios)
 packages/shared/      # Shared TS types (CountryCode, CurrencyCode, …)
 docs/                 # THE_TINK_LAYER, TINK_SANDBOX_TEST_SCENARIOS, TINK_CONNECTION_ISSUE_REPORT, TINK_TESTING
 ```
@@ -99,7 +101,7 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Tink integration
 
-- OAuth: device opens Tink Link URL → Tink redirects to `https://standalone-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to `standalone-finance://oauth/tink#access_token=…&refresh_token=…` (or to a localhost web origin on Expo web) → mobile stores tokens in SecureStore/localStorage.
+- OAuth: device opens Tink Link URL → Tink redirects to `https://standalone-finance-bridge.hajzerbela.workers.dev/oauth/tink/callback` → bridge exchanges code for tokens with `client_secret` → 302-redirects to the Universal Link `https://finance.appointer.hu/oauth/tink#access_token=…&refresh_token=…` when `APP_UNIVERSAL_LINK_HOST` is configured, otherwise to the legacy `standalone-finance://oauth/tink#…` custom scheme (Expo web flows still resolve to a localhost web origin via the `state.web_redirect_uri` payload) → mobile stores tokens in SecureStore/localStorage. The mobile-side `handleTinkBridgeCallback` matches by URL *path* (`oauth/tink`), so it accepts custom-scheme, Universal Link, and localhost web returns through the same branch.
 - Data fetch: mobile calls `${EXPO_PUBLIC_TINK_BRIDGE_URL}/tink/data/v2/{accounts,transactions}` with `Authorization: Bearer <access_token>`. Bridge proxies to `api.tink.com/data/v2/*` and adds `Access-Control-Allow-Origin: *` (required for Expo web; native ignores it).
 - Tink v2 `accounts[].identifiers` is an **object** keyed by identifier type (`{ iban: { iban }, bban: { bban }, sortCode: ... }`), not an array. Mobile-side `extractAccountIdentifiers` tolerates both shapes.
 - Categories: raw Tink code is preserved on `transactions.tinkCategoryCode`; the mapped name lives in `categoryId`. Mapping is in [tinkCategoryMapping.ts](apps/mobile/src/integrations/tinkCategoryMapping.ts).
@@ -108,10 +110,11 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Bridge contract
 
-- Five handlers, all pure functions of inputs. See [apps/bridge/src/index.ts](apps/bridge/src/index.ts).
+- Handlers (all pure functions of inputs, see [apps/bridge/src/index.ts](apps/bridge/src/index.ts)): `GET /health`, `GET /oauth/tink/callback`, `POST /oauth/tink/refresh`, `GET /tink/data/v2/{accounts,transactions}`, `GET /oauth/tink` (Universal Link hand-off page), `GET /.well-known/apple-app-site-association`, `GET /.well-known/assetlinks.json`.
 - The data proxy at `/tink/data/v2/*` does not require Ed25519 signatures — the Bearer token is the auth. Only `/oauth/tink/refresh` requires a signed request (because the refresh endpoint speaks to Tink with `client_secret`, which is the actual secret to protect).
 - CORS is `*`. The bridge has nothing to steal: refusing arbitrary origins would block Expo web dev without adding security.
 - Bridge writes nothing — no KV, no D1, no logs of token or response contents.
+- The `/.well-known/*` and `/oauth/tink` hand-off routes 404 when `APP_UNIVERSAL_LINK_HOST` is unset, so a bridge without Universal Links configured behaves exactly as before. To activate Universal Links you also need to bind `finance.appointer.hu` (or whichever host) to the Worker via the Cloudflare dashboard — the AASA/assetlinks files must be served *from the host that appears in the deep link*, not from the workers.dev URL.
 
 ### Web fallback gate
 
@@ -126,8 +129,8 @@ PFM heuristics are pure modules — no Convex / Fastify / SQLite dependencies.
 
 ### Tests
 
-- Mobile tests are jest under `apps/mobile/src/**/*.test.{ts,tsx}`. Run with `npm run test -w @standalone-finance/mobile`. Current count: 111 across 13 suites.
-- Bridge tests are vitest under `apps/bridge/test/*.test.ts`, run with the Cloudflare Workers pool. Run with `npm run test -w @standalone-finance/bridge`. Current count: 35 across 4 suites (the Wise OAuth refresh scenarios were removed 2026-05-14 with the Wise integration).
+- Mobile tests are jest under `apps/mobile/src/**/*.test.{ts,tsx}`. Run with `npm run test -w @standalone-finance/mobile`. Current count: 109 passing across 12 suites + 1 pre-existing failure in `ImportCsvDialog.test.tsx` (theme-init regression introduced by commit `358cdbd new design system added.`, unrelated to M7).
+- Bridge tests are vitest under `apps/bridge/test/*.test.ts`, run with the Cloudflare Workers pool. Run with `npm run test -w @standalone-finance/bridge`. Current count: 51 across 5 suites (added `universalLinks.test.ts` in M7.9).
 - Native modules are mocked in [apps/mobile/jest.setup.ts](apps/mobile/jest.setup.ts): `react-native-safe-area-context`, `expo-local-authentication`. Add new mocks here when a test imports a native-only module.
 
 ## Environment
@@ -154,11 +157,16 @@ Set via `wrangler secret put` (or `.dev.vars` for `wrangler dev`):
 - `TINK_API_BASE_URL` (`https://api.tink.com`)
 - `APP_DEEP_LINK_SCHEME` (`standalone-finance`)
 - `SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS` (defaults `300`)
+- `APP_UNIVERSAL_LINK_HOST` (optional, e.g. `finance.appointer.hu`; enables the Universal Link redirect path and the `/.well-known/*` routes)
+- `IOS_APP_BUNDLE_ID` + `IOS_TEAM_ID` (required for `apple-app-site-association` — leave the bundle id in `[vars]` and put the team id in secrets)
+- `ANDROID_PACKAGE_NAME` + `ANDROID_SHA256_FINGERPRINTS` (required for `assetlinks.json`; fingerprints are comma-separated SHA-256 hex with colons, sourced from Play App Signing or your release keystore)
 
 ## Sandbox & smoke checks
 
 - Bridge health: `https://standalone-finance-bridge.hajzerbela.workers.dev/health` → `{"status":"ok"}`.
 - Bridge CORS smoke: `curl --ssl-no-revoke -i "https://standalone-finance-bridge.hajzerbela.workers.dev/tink/data/v2/accounts"` should return `401 Unauthorized` with `access-control-allow-origin: *` (Windows curl needs `--ssl-no-revoke` because schannel can't always reach Cloudflare's CRL).
+- AASA smoke (after `finance.appointer.hu` is bound to the Worker): `curl --ssl-no-revoke -i "https://finance.appointer.hu/.well-known/apple-app-site-association"` returns JSON with the `appIDs` array `["<TEAM_ID>.com.elyscom.standalonefinancemanagement"]`. Apple's CDN caches AASA aggressively; expect up to ~24 h before a fresh deploy is visible to a clean iOS install.
+- Asset Links smoke: `curl --ssl-no-revoke -i "https://finance.appointer.hu/.well-known/assetlinks.json"` returns the SHA-256 fingerprint array. Verify with `adb shell pm get-app-links com.elyscom.standalonefinancemanagement` on an installed dev build.
 - End-to-end on a phone: connect → sync → confirm dashboard cards populate; leave idle past 119 minutes → bring app back → confirm the chip in Settings shows a fresh "Sandbox token stored <time>" (verifies the M5.4 scheduler).
 
 ## Operating notes
