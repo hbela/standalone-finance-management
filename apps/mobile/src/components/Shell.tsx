@@ -1,20 +1,25 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { BottomNavigation, Text } from "react-native-paper";
+import { BottomNavigation, IconButton, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import type { AppTab, BankConnectionReturn } from "../../App";
+import type { AppColorTheme, AppTab, AppThemeMode, BankConnectionReturn } from "../../App";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { DebtsScreen } from "../screens/DebtsScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { TransactionsScreen } from "../screens/TransactionsScreen";
+import { useFinanceTheme } from "../theme";
 
 type ShellProps = {
   activeTab: AppTab;
   bankConnectionReturn?: BankConnectionReturn | null;
+  colorTheme: AppColorTheme;
   onBankConnectionReturnHandled?: () => void;
+  onColorThemeChange: (colorTheme: AppColorTheme) => void;
   onTabChange: (tab: AppTab) => void;
+  onThemeModeChange: () => void;
+  themeMode: AppThemeMode;
 };
 
 const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocusedIcon: string }> = [
@@ -53,9 +58,15 @@ const routes: Array<{ key: AppTab; title: string; focusedIcon: string; unfocused
 export function Shell({
   activeTab,
   bankConnectionReturn,
+  colorTheme,
   onBankConnectionReturnHandled,
-  onTabChange
+  onColorThemeChange,
+  onTabChange,
+  onThemeModeChange,
+  themeMode
 }: ShellProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const renderScene = React.useCallback(({ route }: { route: { key: AppTab } }) => {
     switch (route.key) {
       case "dashboard":
@@ -70,7 +81,9 @@ export function Shell({
         return (
           <SettingsScreen
             bankConnectionReturn={bankConnectionReturn}
+            colorTheme={colorTheme}
             onBankConnectionReturnHandled={onBankConnectionReturnHandled}
+            onColorThemeChange={onColorThemeChange}
           />
         );
       default:
@@ -81,12 +94,33 @@ export function Shell({
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <View>
-          <Text variant="labelLarge" style={styles.kicker}>
-            Standalone Finance Management
-          </Text>
-          <Text variant="titleLarge">Multi-currency cockpit</Text>
+        <View style={styles.brand}>
+          <View style={styles.brandIcon}>
+            <IconButton
+              accessibilityLabel="Finance cockpit"
+              icon="chart-donut"
+              iconColor={theme.colors.onPrimaryContainer}
+              size={24}
+              style={styles.brandIconButton}
+            />
+          </View>
+          <View style={styles.headerText}>
+            <Text numberOfLines={1} variant="headlineSmall" style={styles.title}>
+              Finance cockpit
+            </Text>
+            <Text numberOfLines={1} variant="titleSmall" style={styles.kicker}>
+              Standalone multi-currency management
+            </Text>
+          </View>
         </View>
+        <IconButton
+          accessibilityLabel={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+          icon={themeMode === "dark" ? "weather-sunny" : "weather-night"}
+          mode="contained-tonal"
+          onPress={onThemeModeChange}
+          selected={themeMode === "dark"}
+          size={22}
+        />
       </View>
       <BottomNavigation
         navigationState={{
@@ -103,22 +137,57 @@ export function Shell({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useFinanceTheme>) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F5F7F9"
+    backgroundColor: theme.colors.background
   },
   header: {
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-    paddingTop: 8,
-    backgroundColor: "#F5F7F9",
+    backgroundColor: theme.colors.background,
     flexDirection: "row",
-    justifyContent: "space-between"
+    gap: theme.spacing.md,
+    justifyContent: "space-between",
+    minHeight: 86,
+    paddingBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md
+  },
+  brand: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: theme.spacing.md,
+    minWidth: 0
+  },
+  brandIcon: {
+    alignItems: "center",
+    backgroundColor: theme.colors.primaryContainer,
+    borderRadius: theme.radius.lg,
+    height: 52,
+    justifyContent: "center",
+    width: 52
+  },
+  brandIconButton: {
+    margin: 0
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0
   },
   kicker: {
-    color: "#19624A",
-    marginBottom: 2
+    color: theme.colors.onSurfaceVariant,
+    fontSize: 18,
+    fontWeight: "500",
+    lineHeight: 24,
+    marginTop: 2
+  },
+  title: {
+    color: theme.colors.onBackground,
+    fontSize: 32,
+    fontWeight: "800",
+    lineHeight: 38
   }
 });
+}

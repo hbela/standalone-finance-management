@@ -18,6 +18,7 @@ import {
 } from "../services/sqlitePfm";
 import type { Currency, Transaction, TransactionType } from "../data/types";
 import { sqliteFinanceQueryKeys, useFinance } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 import { formatSignedMoney } from "../utils/money";
 import { detectRecurringCandidates, type RecurringCandidate } from "../utils/recurring";
 
@@ -29,6 +30,8 @@ const filterOptions = [
 ];
 
 export function TransactionsScreen() {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { transactions, isLoading, error, clearError, updateTransaction } = useFinance();
   const [addTransactionVisible, setAddTransactionVisible] = useState(false);
   const [importCsvVisible, setImportCsvVisible] = useState(false);
@@ -360,43 +363,45 @@ function iconForType(type: TransactionType) {
   }
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   search: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   titleRow: {
-    gap: 10
+    gap: theme.spacing.sm
   },
   actions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10
+    gap: theme.spacing.sm
   },
   amountBlock: {
     alignItems: "flex-end",
     justifyContent: "center"
   },
   positive: {
-    color: "#19624A",
+    color: theme.finance.income,
     fontWeight: "700"
   },
   negative: {
-    color: "#8A3A24",
+    color: theme.finance.expense,
     fontWeight: "700"
   },
   muted: {
-    color: "#65727D"
+    color: theme.colors.onSurfaceVariant
   },
   metaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 16
+    gap: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md
   }
 });
+}

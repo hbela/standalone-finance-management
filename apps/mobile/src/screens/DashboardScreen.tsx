@@ -23,10 +23,13 @@ import {
 } from "../services/sqlitePfm";
 import type { Account, Currency } from "../data/types";
 import { sqliteFinanceQueryKeys, useFinance, useFxSnapshot } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 import { getAccountBalanceReconciliations, getCurrencyExposure, getDashboardSummary } from "../utils/finance";
 import { formatMoney } from "../utils/money";
 
 export function DashboardScreen() {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const [addAccountVisible, setAddAccountVisible] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const { accounts, transactions, liabilities, settings, isLoading, error, clearError } = useFinance();
@@ -90,7 +93,7 @@ export function DashboardScreen() {
           <Text variant="labelLarge" style={styles.heroLabel}>
             Net position in {settings.baseCurrency}
           </Text>
-          <Text variant="displaySmall" style={styles.heroValue}>
+          <Text variant="headlineLarge" style={styles.heroValue}>
             {formatMoney(summary.netWorth, settings.baseCurrency)}
           </Text>
           <Text variant="bodyMedium" style={styles.heroCopy}>
@@ -119,7 +122,7 @@ export function DashboardScreen() {
                 <Text variant="labelLarge" style={styles.forecastLabel}>
                   Projected balance in {forecast.horizonDays} days
                 </Text>
-                <Text variant="displaySmall" style={styles.forecastValue}>
+                <Text variant="headlineLarge" style={styles.forecastValue}>
                   {formatMoney(forecast.endingBalance, asCurrency(forecast.currency))}
                 </Text>
               </View>
@@ -324,7 +327,10 @@ export function DashboardScreen() {
                 </View>
                 <View style={styles.exposureValue}>
                   <Text variant="labelLarge">{formatMoney(item.baseAmount, settings.baseCurrency)}</Text>
-                  <ProgressBar progress={Math.min(Math.abs(item.baseAmount) / exposureDenominator, 1)} color="#19624A" />
+                  <ProgressBar
+                    progress={Math.min(Math.abs(item.baseAmount) / exposureDenominator, 1)}
+                    color={theme.colors.primary}
+                  />
                 </View>
               </View>
             ))}
@@ -360,37 +366,44 @@ export function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   hero: {
-    backgroundColor: "#E6F3EC",
-    borderRadius: 8
+    backgroundColor: theme.colors.primaryContainer,
+    borderRadius: theme.radius.lg
   },
   heroLabel: {
-    color: "#19624A"
+    color: theme.colors.onPrimaryContainer,
+    fontSize: 13,
+    lineHeight: 18
   },
   heroValue: {
-    color: "#073827",
+    color: theme.colors.onPrimaryContainer,
+    fontSize: 34,
     fontWeight: "800",
-    marginTop: 8
+    lineHeight: 40,
+    marginTop: theme.spacing.sm
   },
   heroCopy: {
-    color: "#325243",
-    marginTop: 6
+    color: theme.colors.onPrimaryContainer,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: theme.spacing.xs
   },
   heroActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginTop: 18
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.md
   },
   metricGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12
+    gap: theme.spacing.md
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   amountBlock: {
     alignItems: "flex-end",
@@ -400,42 +413,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 16
+    gap: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md
   },
   muted: {
-    color: "#65727D"
+    color: theme.colors.onSurfaceVariant
   },
   warningText: {
-    color: "#8A3A24"
+    color: theme.finance.warning
   },
   exposureList: {
-    gap: 14
+    gap: theme.spacing.md
   },
   exposureRow: {
-    gap: 8
+    gap: theme.spacing.sm
   },
   exposureLabel: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10,
+    gap: theme.spacing.sm,
     justifyContent: "space-between"
   },
   exposureValue: {
-    gap: 6
+    gap: theme.spacing.xs
   },
   alerts: {
-    gap: 10
+    gap: theme.spacing.sm
   },
   alertCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   alertContent: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8
+    gap: theme.spacing.sm
   },
   alertText: {
     flex: 1
@@ -444,21 +457,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 16
+    gap: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md
   },
   incomeAmount: {
-    color: "#19624A",
+    color: theme.finance.income,
     fontWeight: "700"
   },
   expenseAmount: {
-    color: "#8A3A24",
+    color: theme.finance.expense,
     fontWeight: "700"
   },
   forecastCard: {
-    backgroundColor: "#F4F8F6",
-    borderRadius: 8
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.radius.lg
   },
   forecastHeader: {
     alignItems: "center",
@@ -466,32 +479,39 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   forecastLabel: {
-    color: "#19624A"
+    color: theme.colors.onSurfaceVariant,
+    fontSize: 13,
+    lineHeight: 18
   },
   forecastValue: {
-    color: "#073827",
+    color: theme.colors.onSurface,
+    fontSize: 34,
     fontWeight: "800",
-    marginTop: 4
+    lineHeight: 40,
+    marginTop: theme.spacing.xs
   },
   forecastCopy: {
-    color: "#325243",
-    marginTop: 8
+    color: theme.colors.onSurfaceVariant,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: theme.spacing.sm
   },
   forecastUpChip: {
-    backgroundColor: "#D6EADF"
+    backgroundColor: theme.finance.incomeContainer
   },
   forecastDownChip: {
-    backgroundColor: "#F4D8CD"
+    backgroundColor: theme.finance.expenseContainer
   },
   positive: {
-    color: "#19624A",
+    color: theme.finance.income,
     fontWeight: "700"
   },
   negative: {
-    color: "#8A3A24",
+    color: theme.finance.expense,
     fontWeight: "700"
   }
 });
+}
 
 async function runPFMAction(action: () => Promise<void>, queryClient: QueryClient) {
   await action();

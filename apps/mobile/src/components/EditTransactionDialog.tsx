@@ -7,6 +7,7 @@ import { z } from "zod";
 import { transactionTypeOptions } from "../data/categories";
 import type { Transaction, TransactionType } from "../data/types";
 import { type UpdateTransactionInput, useFinance } from "../state/FinanceContext";
+import { useFinanceTheme } from "../theme";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
 import { formatSignedMoney } from "../utils/money";
 
@@ -30,6 +31,7 @@ const editTransactionSchema = z.object({
 type EditTransactionForm = z.input<typeof editTransactionSchema>;
 
 export function EditTransactionDialog({ transaction, visible, onDismiss }: EditTransactionDialogProps) {
+  const theme = useFinanceTheme();
   const { accounts, archiveTransaction, categories, transactions, updateTransaction } = useFinance();
   const accountNamesById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account.name])),
@@ -237,7 +239,7 @@ export function EditTransactionDialog({ transaction, visible, onDismiss }: EditT
         <Dialog.Actions>
           <Button
             disabled={!transaction}
-            textColor="#BA1A1A"
+            textColor={theme.colors.error}
             onPress={async () => {
               if (!transaction) {
                 return;

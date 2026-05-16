@@ -2,6 +2,8 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Card, Text } from "react-native-paper";
 
+import { useFinanceTheme, type FinanceTheme } from "../theme";
+
 type AppLockScreenProps = {
   message?: string;
   error?: string | null;
@@ -10,6 +12,9 @@ type AppLockScreenProps = {
 };
 
 export function AppLockScreen({ error, isAuthenticating, message, onUnlock }: AppLockScreenProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
+
   return (
     <View style={styles.container}>
       <Card mode="contained" style={styles.card}>
@@ -40,43 +45,45 @@ export function AppLockScreen({ error, isAuthenticating, message, onUnlock }: Ap
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   container: {
     alignItems: "center",
-    backgroundColor: "#F5F7F9",
+    backgroundColor: theme.colors.background,
     flex: 1,
     justifyContent: "center",
-    padding: 20,
+    padding: theme.spacing.md,
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
     maxWidth: 460,
     width: "100%",
   },
   content: {
-    gap: 16,
-    paddingVertical: 24,
+    gap: theme.spacing.md,
+    paddingVertical: theme.spacing.lg,
   },
   kicker: {
-    color: "#19624A",
+    color: theme.colors.primary,
     fontSize: 13,
     fontWeight: "700",
-    marginBottom: 6,
+    marginBottom: theme.spacing.xs,
   },
   title: {
-    color: "#17202A",
+    color: theme.colors.onSurface,
     fontSize: 24,
     fontWeight: "800",
   },
   copy: {
-    color: "#53616F",
+    color: theme.colors.onSurfaceVariant,
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 8,
+    marginTop: theme.spacing.sm,
   },
   error: {
-    color: "#BA1A1A",
+    color: theme.colors.error,
     fontSize: 14,
   },
 });
+}

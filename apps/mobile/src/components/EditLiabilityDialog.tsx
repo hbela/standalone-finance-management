@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { Currency, Liability } from "../data/types";
 import { type UpdateLiabilityInput, useFinance } from "../state/FinanceContext";
+import { useFinanceTheme } from "../theme";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
 
 type EditLiabilityDialogProps = {
@@ -36,6 +37,7 @@ const editLiabilitySchema = z.object({
 type EditLiabilityForm = z.input<typeof editLiabilitySchema>;
 
 export function EditLiabilityDialog({ liability, visible, onDismiss }: EditLiabilityDialogProps) {
+  const theme = useFinanceTheme();
   const { archiveLiability, updateLiability } = useFinance();
   const defaultValues = useMemo<EditLiabilityForm>(
     () => ({
@@ -150,7 +152,7 @@ export function EditLiabilityDialog({ liability, visible, onDismiss }: EditLiabi
         <Dialog.Actions>
           <Button
             disabled={!liability}
-            textColor="#BA1A1A"
+            textColor={theme.colors.error}
             onPress={async () => {
               if (!liability) {
                 return;

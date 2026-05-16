@@ -1,22 +1,36 @@
 import React, { type ReactNode } from "react";
 import { ScrollView, StyleSheet } from "react-native";
 
+import { useFinanceTheme, type FinanceTheme } from "../theme";
+
 type ScreenProps = {
   children: ReactNode;
 };
 
 export function Screen({ children }: ScreenProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
+
   return (
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      style={styles.scroll}
+    >
       {children}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
+  scroll: {
+    backgroundColor: theme.colors.background
+  },
   content: {
-    padding: 20,
-    paddingBottom: 32,
-    gap: 16
+    gap: theme.spacing.md,
+    padding: theme.spacing.md,
+    paddingBottom: theme.spacing.xl
   }
 });
+}

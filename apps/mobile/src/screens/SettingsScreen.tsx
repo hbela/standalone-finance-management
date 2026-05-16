@@ -3,7 +3,7 @@ import { Linking, StyleSheet, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Chip, HelperText, List, SegmentedButtons, Text, TextInput } from "react-native-paper";
 
-import type { BankConnectionReturn } from "../../App";
+import type { AppColorTheme, BankConnectionReturn } from "../../App";
 import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
@@ -20,10 +20,13 @@ import {
 import { syncTinkToSQLite, type TinkMobileSyncResult } from "../integrations/tinkMobileSync";
 import { useFinance } from "../state/FinanceContext";
 import { sqliteFinanceQueryKeys } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 
 type SettingsScreenProps = {
   bankConnectionReturn?: BankConnectionReturn | null;
+  colorTheme: AppColorTheme;
   onBankConnectionReturnHandled?: () => void;
+  onColorThemeChange: (colorTheme: AppColorTheme) => void;
 };
 
 const currencyButtons = [
@@ -38,6 +41,12 @@ const countryButtons = [
   { label: "France", value: "FR" }
 ];
 
+const colorThemeButtons = [
+  { label: "Brown", value: "brown" },
+  { label: "Blue", value: "blue" },
+  { label: "Pink", value: "pink" }
+];
+
 const localeForCountry: Record<Country, string> = {
   HU: "hu-HU",
   FR: "fr-FR"
@@ -45,8 +54,12 @@ const localeForCountry: Record<Country, string> = {
 
 export function SettingsScreen({
   bankConnectionReturn,
-  onBankConnectionReturnHandled
+  colorTheme,
+  onBankConnectionReturnHandled,
+  onColorThemeChange
 }: SettingsScreenProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { addCategory, archiveCategory, categories, clearError, error, isPersisted, settings, updateSettings } = useFinance();
   const [country, setCountry] = useState<Country>(settings.country);
   const [baseCurrency, setBaseCurrency] = useState<Currency>(settings.baseCurrency);
@@ -71,9 +84,18 @@ export function SettingsScreen({
     <Screen>
       {error ? <StateCard title="Settings action failed" detail={error} tone="error" /> : null}
 
-      <SectionTitle title="Settings" action={isPersisted ? "Convex" : "Local"} />
+      <SectionTitle title="Settings" action={isPersisted ? "Cloud sync" : "Local"} />
       <Card mode="contained" style={styles.card}>
         <Card.Content style={styles.content}>
+          <View>
+            <Text variant="labelLarge">Color theme</Text>
+            <SegmentedButtons
+              buttons={colorThemeButtons}
+              onValueChange={(value) => onColorThemeChange(value as AppColorTheme)}
+              value={colorTheme}
+            />
+          </View>
+
           <View>
             <Text variant="labelLarge">Country</Text>
             <SegmentedButtons
@@ -200,6 +222,8 @@ function AuthenticatedBankConnectionSection({
   bankConnectionReturn?: BankConnectionReturn | null;
   onBankConnectionReturnHandled?: () => void;
 }) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const bankConnection = useBankConnection(true, bankConnectionReturn, onBankConnectionReturnHandled);
 
   return (
@@ -306,6 +330,9 @@ function AuthenticatedBankConnectionSection({
 }
 
 function LocalBankConnectionSection() {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
+
   return (
     <>
       <SectionTitle title="Bank Connection" action="Local mode" />
@@ -598,18 +625,19 @@ function getBankConnectionDetail(
   return detail;
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   content: {
-    gap: 16
+    gap: theme.spacing.md
   },
   categoryInputRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 10
+    gap: theme.spacing.sm
   },
   categoryInput: {
     flex: 1
@@ -617,11 +645,12 @@ const styles = StyleSheet.create({
   categoryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: theme.spacing.sm
   },
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: theme.spacing.sm
   }
 });
+}

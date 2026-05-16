@@ -2,6 +2,8 @@ import React from "react";
 import { StyleSheet } from "react-native";
 import { ActivityIndicator, Card, Text } from "react-native-paper";
 
+import { useFinanceTheme, type FinanceTheme } from "../theme";
+
 type StateCardProps = {
   title: string;
   detail: string;
@@ -10,6 +12,9 @@ type StateCardProps = {
 };
 
 export function StateCard({ title, detail, loading = false, tone = "default" }: StateCardProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
+
   return (
     <Card
       mode="contained"
@@ -39,38 +44,40 @@ export function StateCard({ title, detail, loading = false, tone = "default" }: 
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   content: {
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 20
+    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.lg
   },
   detail: {
-    color: "#65727D",
+    color: theme.colors.onSurfaceVariant,
     textAlign: "center"
   },
   errorCard: {
-    backgroundColor: "#FFF1F0"
+    backgroundColor: theme.colors.errorContainer
   },
   errorTitle: {
-    color: "#BA1A1A",
+    color: theme.colors.onErrorContainer,
     textAlign: "center"
   },
   warningCard: {
-    backgroundColor: "#FFF7E8"
+    backgroundColor: theme.colors.tertiaryContainer
   },
   warningTitle: {
-    color: "#8A3A24",
+    color: theme.colors.onTertiaryContainer,
     fontWeight: "700",
     textAlign: "center"
   },
   title: {
-    color: "#17202A",
+    color: theme.colors.onSurface,
     fontWeight: "700",
     textAlign: "center"
   }
 });
+}

@@ -15,6 +15,7 @@ import { SectionTitle } from "../components/SectionTitle";
 import { banks } from "../data/mockFinance";
 import type { Bank } from "../data/types";
 import { useFinance } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 
 const setupSteps = [
   "Set country, currency, and locale in Settings",
@@ -23,6 +24,8 @@ const setupSteps = [
 ];
 
 export function OnboardingScreen() {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { accounts, settings } = useFinance();
   const country = settings.country;
   const currency = settings.baseCurrency;
@@ -124,31 +127,33 @@ export function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   hero: {
-    backgroundColor: "#FFF2E8",
-    borderRadius: 8
+    backgroundColor: theme.colors.tertiaryContainer,
+    borderRadius: theme.radius.lg
   },
   heroContent: {
-    gap: 8
+    gap: theme.spacing.sm
   },
   heroLabel: {
-    color: "#8A4B22"
+    color: theme.colors.onTertiaryContainer
   },
   heroTitle: {
-    color: "#4D260B",
+    color: theme.colors.onTertiaryContainer,
     fontWeight: "800"
   },
   muted: {
-    color: "#65727D"
+    color: theme.colors.onSurfaceVariant
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   bankMethods: {
     alignItems: "flex-end",
-    gap: 6,
+    gap: theme.spacing.xs,
     justifyContent: "center"
   },
 });
+}

@@ -11,6 +11,7 @@ import {
   type CsvFieldMapping
 } from "../utils/csvImport";
 import { useFinance } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 import { formatSignedMoney } from "../utils/money";
 
 type ImportCsvDialogProps = {
@@ -41,6 +42,8 @@ const dateFormatButtons: Array<{ label: string; value: CsvDateFormat }> = [
 ];
 
 export function ImportCsvDialog({ visible, onDismiss, initialAccountId }: ImportCsvDialogProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { accounts, categories, importBatches, importTransactions, revertImportBatch } = useFinance();
   const [accountId, setAccountId] = useState(initialAccountId ?? accounts[0]?.id ?? "");
   const [csvText, setCsvText] = useState(sampleCsv);
@@ -232,9 +235,10 @@ function formatDelimiter(delimiter: string) {
   return delimiter === "\t" ? "tab" : delimiter;
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   dialog: {
-    borderRadius: 8,
+    borderRadius: theme.radius.lg,
     maxHeight: "92%"
   },
   scrollArea: {
@@ -245,8 +249,8 @@ const styles = StyleSheet.create({
     flexGrow: 0
   },
   content: {
-    gap: 12,
-    paddingVertical: 16
+    gap: theme.spacing.md,
+    paddingVertical: theme.spacing.md
   },
   csvInput: {
     minHeight: 150
@@ -259,28 +263,29 @@ const styles = StyleSheet.create({
     flex: 1
   },
   inspectCard: {
-    backgroundColor: "#F6F8FA",
-    borderRadius: 8,
-    gap: 4,
-    padding: 12
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.radius.md,
+    gap: theme.spacing.xs,
+    padding: theme.spacing.md
   },
   mappingGrid: {
-    gap: 8
+    gap: theme.spacing.sm
   },
   preview: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    paddingTop: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    paddingTop: theme.spacing.sm
   },
   previewTitle: {
-    paddingHorizontal: 16
+    paddingHorizontal: theme.spacing.md
   },
   positive: {
-    color: "#19624A",
+    color: theme.finance.income,
     fontWeight: "700"
   },
   negative: {
-    color: "#8A3A24",
+    color: theme.finance.expense,
     fontWeight: "700"
   }
 });
+}

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { Account, Currency } from "../data/types";
 import { type UpdateAccountInput, useFinance } from "../state/FinanceContext";
+import { useFinanceTheme } from "../theme";
 import { getFieldError, hasFieldError } from "../utils/formErrors";
 
 type EditAccountDialogProps = {
@@ -40,6 +41,7 @@ const editAccountSchema = z.object({
 type EditAccountForm = z.input<typeof editAccountSchema>;
 
 export function EditAccountDialog({ account, visible, onDismiss }: EditAccountDialogProps) {
+  const theme = useFinanceTheme();
   const { archiveAccount, updateAccount } = useFinance();
   const defaultValues = useMemo<EditAccountForm>(
     () => ({
@@ -146,7 +148,7 @@ export function EditAccountDialog({ account, visible, onDismiss }: EditAccountDi
         <Dialog.Actions>
           <Button
             disabled={!account}
-            textColor="#BA1A1A"
+            textColor={theme.colors.error}
             onPress={async () => {
               if (!account) {
                 return;

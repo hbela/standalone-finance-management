@@ -2,6 +2,8 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { Card, Text } from "react-native-paper";
 
+import { useFinanceTheme, type FinanceTheme } from "../theme";
+
 type MetricCardProps = {
   label: string;
   value: string;
@@ -10,17 +12,21 @@ type MetricCardProps = {
 };
 
 export function MetricCard({ label, value, helper, tone = "neutral" }: MetricCardProps) {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
+  const isProminent = tone === "primary";
+
   return (
-    <Card mode="contained" style={[styles.card, tone === "primary" && styles.primary]}>
+    <Card mode="contained" style={[styles.card, isProminent && styles.primary]}>
       <Card.Content>
-        <Text variant="labelMedium" style={[styles.label, tone === "primary" && styles.onPrimary]}>
+        <Text variant="labelMedium" style={[styles.label, isProminent && styles.onPrimary]}>
           {label}
         </Text>
-        <Text variant="headlineSmall" style={[styles.value, tone === "primary" && styles.onPrimary]}>
+        <Text variant="headlineSmall" style={[styles.value, isProminent && styles.onPrimary]}>
           {value}
         </Text>
         {helper ? (
-          <Text variant="bodySmall" style={[styles.helper, tone === "primary" && styles.onPrimary]}>
+          <Text variant="bodySmall" style={[styles.helper, isProminent && styles.onPrimary]}>
             {helper}
           </Text>
         ) : null}
@@ -29,29 +35,31 @@ export function MetricCard({ label, value, helper, tone = "neutral" }: MetricCar
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   card: {
     flex: 1,
     minWidth: 150,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   primary: {
-    backgroundColor: "#19624A"
+    backgroundColor: theme.finance.income
   },
   label: {
-    color: "#58646E",
-    marginBottom: 6
+    color: theme.colors.onSurfaceVariant,
+    marginBottom: theme.spacing.xs
   },
   value: {
-    color: "#14212B",
+    color: theme.colors.onSurface,
     fontWeight: "700"
   },
   helper: {
-    color: "#58646E",
-    marginTop: 4
+    color: theme.colors.onSurfaceVariant,
+    marginTop: theme.spacing.xs
   },
   onPrimary: {
-    color: "#FFFFFF"
+    color: theme.finance.onIncome
   }
 });
+}

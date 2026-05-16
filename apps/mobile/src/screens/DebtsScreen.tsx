@@ -8,11 +8,14 @@ import { Screen } from "../components/Screen";
 import { SectionTitle } from "../components/SectionTitle";
 import { StateCard } from "../components/StateCard";
 import { useFinance, useFxSnapshot } from "../state/FinanceContext";
+import { useFinanceTheme, type FinanceTheme } from "../theme";
 import type { Liability } from "../data/types";
 import { toBaseCurrencyAmount } from "../services/fxRates";
 import { formatMoney } from "../utils/money";
 
 export function DebtsScreen() {
+  const theme = useFinanceTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { liabilities, settings, isLoading, error, clearError } = useFinance();
   const fxSnapshot = useFxSnapshot(settings.baseCurrency);
   const [addLiabilityVisible, setAddLiabilityVisible] = useState(false);
@@ -29,7 +32,7 @@ export function DebtsScreen() {
   return (
     <Screen>
       {isLoading ? (
-        <StateCard title="Loading liabilities" detail="Fetching your loans and debt records from Convex." loading />
+        <StateCard title="Loading liabilities" detail="Fetching your loans and debt records from local storage." loading />
       ) : null}
       {error ? <StateCard title="Finance action failed" detail={error} tone="error" /> : null}
 
@@ -108,7 +111,7 @@ export function DebtsScreen() {
                     </View>
                   </View>
 
-                  <ProgressBar progress={Math.max(progress, 0.02)} color="#325B7C" />
+                  <ProgressBar progress={Math.max(progress, 0.02)} color={theme.colors.secondary} />
                   <View style={styles.detailGrid}>
                     <List.Item
                       title={`${liability.interestRate}%`}
@@ -142,42 +145,43 @@ export function DebtsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: FinanceTheme) {
+  return StyleSheet.create({
   summary: {
-    backgroundColor: "#EAF2F8",
-    borderRadius: 8
+    backgroundColor: theme.colors.secondaryContainer,
+    borderRadius: theme.radius.lg
   },
   summaryLabel: {
-    color: "#325B7C"
+    color: theme.colors.onSecondaryContainer
   },
   summaryValue: {
-    color: "#12344D",
+    color: theme.colors.onSecondaryContainer,
     fontWeight: "800",
-    marginTop: 8
+    marginTop: theme.spacing.sm
   },
   muted: {
-    color: "#65727D"
+    color: theme.colors.onSurfaceVariant
   },
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    marginTop: 18
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.md
   },
   list: {
-    gap: 12
+    gap: theme.spacing.md
   },
   card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg
   },
   cardContent: {
-    gap: 16
+    gap: theme.spacing.md
   },
   titleRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
+    gap: theme.spacing.md,
     justifyContent: "space-between"
   },
   titleBlock: {
@@ -195,8 +199,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-end"
   },
   detailGrid: {
-    borderColor: "#E2E8ED",
-    borderRadius: 8,
+    borderColor: theme.colors.outlineVariant,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     overflow: "hidden"
   },
@@ -204,3 +208,4 @@ const styles = StyleSheet.create({
     paddingVertical: 0
   }
 });
+}
